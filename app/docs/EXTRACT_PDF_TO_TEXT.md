@@ -582,13 +582,13 @@ URL CONVENTION:
 
 SAU KHI XONG, hãy:
 ✅ CHECKLIST:
-- [ ] bbox convert từ relative sang pixel chính xác
-- [ ] Clamp bbox không ra ngoài ảnh
-- [ ] Skip figure nhỏ hơn 50x50px
-- [ ] Cleanup trim whitespace
-- [ ] Thumbnail được tạo
-- [ ] Path và URL đúng convention
-- [ ] Lưu JPEG (không PNG) để tiết kiệm storage
+- [x] bbox convert từ relative sang pixel chính xác
+- [x] Clamp bbox không ra ngoài ảnh
+- [x] Skip figure nhỏ hơn 50x50px
+- [x] Cleanup trim whitespace
+- [x] Thumbnail được tạo
+- [x] Path và URL đúng convention
+- [x] Lưu JPEG (không PNG) để tiết kiệm storage
 
 ⚠️ BÁO LỖI NẾU:
 - PIL crop lỗi với bbox invalid
