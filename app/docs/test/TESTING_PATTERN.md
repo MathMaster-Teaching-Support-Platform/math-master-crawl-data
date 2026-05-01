@@ -85,10 +85,10 @@ pytest tests/ --cov=app.services --cov-report=html
 - **Covers:** GeminiOCRService initialization, image encoding, JSON parsing, rate limiting, retry logic
 - **Tests:** 6 tests (singleton, image_encoding, json_parsing, rate_limiter, content_block, page_analysis)
 
-### Phase 3 — Mathpix Fallback Service
-- **File:** `tests/test_phase3.py` & `PHASE3_TESTING.md` *(create when implementing)*
-- **Covers:** Formula extraction, image preprocessing, Mathpix API calls, LaTeX validation
-- **Tests:** *(to be determined)*
+### Phase 3 ✅ — Mathpix Fallback Service
+- **File:** `tests/test_phase3.py` & `PHASE3_TESTING.md`
+- **Covers:** Formula extraction, image preprocessing, Mathpix API calls, LaTeX validation, bbox resolution
+- **Tests:** 9 tests (import, is_enabled, validate_latex, latex_to_readable, extract_formula, resolve_bbox, preprocess, batch_extract, dataclass)
 
 ### Phase 4 — Image Extraction Service
 - **File:** `tests/test_phase4.py` & `PHASE4_TESTING.md` *(create when implementing)*
@@ -260,7 +260,7 @@ pytest tests/ --cov=app.services --cov-report=term-missing
 |-------|--------|-----------|--------|------|
 | Phase 1 | ✅ | `python tests/test_phase1.py` | ✅ | ✅ PHASE1_TESTING.md |
 | Phase 2 | ✅ | `python tests/test_phase2.py` | ✅ | ✅ PHASE2_TESTING.md |
-| Phase 3 | 🔲 | TBD | TBD | TBD |
+| Phase 3 | ✅ | `python tests/test_phase3.py` | ✅ | ✅ PHASE3_TESTING.md |
 | Phase 4 | 🔲 | TBD | TBD | TBD |
 | Phase 5 | 🔲 | TBD | TBD | TBD |
 | ... | ... | ... | ... | ... |
@@ -269,4 +269,4 @@ pytest tests/ --cov=app.services --cov-report=term-missing
 
 **Last Updated:** May 1, 2026  
 **Total Phases:** 10  
-**Phases Implemented:** 2
+**Phases Implemented:** 3

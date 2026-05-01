@@ -377,14 +377,14 @@ LƯU Ý:
 
 SAU KHI XONG, hãy:
 ✅ CHECKLIST:
-- [ ] GeminiOCRService khởi tạo không lỗi
-- [ ] analyze_page() trả về PageAnalysis hợp lệ
-- [ ] JSON parse thành công với response thật
-- [ ] Rate limiter hoạt động (không exceed 10 RPM)
-- [ ] Retry logic hoạt động khi API timeout
-- [ ] formula block có latex hợp lệ
-- [ ] image block có image_bbox dạng [x1,y1,x2,y2]
-- [ ] needs_mathpix được set đúng
+- [x] GeminiOCRService khởi tạo không lỗi
+- [x] analyze_page() trả về PageAnalysis hợp lệ
+- [x] JSON parse thành công với response thật
+- [x] Rate limiter hoạt động (không exceed 10 RPM)
+- [x] Retry logic hoạt động khi API timeout
+- [x] formula block có latex hợp lệ
+- [x] image block có image_bbox dạng [x1,y1,x2,y2]
+- [x] needs_mathpix được set đúng
 
 ⚠️ BÁO LỖI NẾU:
 - Gemini trả về text không phải JSON → cần fix prompt
