@@ -57,7 +57,7 @@ OPENAI_MODEL=gpt-4o
 
 # --- MongoDB ---
 MONGO_URL=mongodb://localhost:27017
-MONGO_DB=ai_chatbot
+MONGO_DB=sgk_toan
 
 # --- App ---
 PORT=8001
@@ -74,7 +74,14 @@ SECRET_KEY=your-secret-key
 | `OPENAI_API_KEY` | *(bắt buộc)* | API key của nhà cung cấp LLM |
 | `OPENAI_MODEL` | `gpt-3.5-turbo` | Tên model LLM (xem bên dưới) |
 | `MONGO_URL` | `mongodb://localhost:27017` | Connection string MongoDB |
-| `MONGO_DB` | `ai_chatbot` | Tên database |
+| `MONGO_DB` | `sgk_toan` | Tên database |
+| `STORAGE_PATH` | `./storage` | Thư mục lưu ảnh trích xuất |
+| `GEMINI_API_KEY` | *(optional)* | Google Gemini API key (OCR chính) |
+| `GEMINI_MODEL` | `gemini-2.0-flash` | Tên model Gemini |
+| `MATHPIX_APP_ID` | *(optional)* | Mathpix App ID (formula fallback) |
+| `MATHPIX_APP_KEY` | *(optional)* | Mathpix App Key |
+| `MATHPIX_ENABLED` | `false` | Bật Mathpix fallback |
+| `MAX_FILE_SIZE_MB` | `50` | Giới hạn kích thước PDF upload |
 | `PORT` | `8001` | Cổng server |
 | `DEBUG` | `False` | Bật/tắt chế độ debug & auto-reload |
 | `API_PREFIX` | `/api/v1` | Tiền tố cho tất cả các API route |
@@ -110,6 +117,12 @@ Health check: `http://localhost:8001/health`
 | `GET` | `/api/v1/chat/history/{session_id}` | Lấy lịch sử chat |
 | `GET/POST` | `/api/v1/ranking/...` | Tra cứu điểm, xếp hạng |
 | `GET/POST` | `/api/v1/university/...` | Thông tin trường đại học |
+| `POST` | `/api/v1/books/upload` | Upload PDF SGK để xử lý |
+| `GET` | `/api/v1/books/` | Danh sách sách đã upload |
+| `GET` | `/api/v1/books/{id}/status` | Trạng thái xử lý real-time |
+| `GET` | `/api/v1/chapters/` | Danh sách chương theo sách |
+| `GET` | `/api/v1/lessons/` | Danh sách bài theo chương |
+| `GET` | `/api/v1/search?q=...` | Tìm kiếm nội dung SGK |
 
 ---
 

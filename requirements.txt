@@ -22,3 +22,6 @@ black==23.11.0
 flake8==6.1.0
 rapidfuzz
 fuzzywuzzy
+pymupdf==1.24.5
+pillow==10.4.0
+google-generativeai==0.7.2

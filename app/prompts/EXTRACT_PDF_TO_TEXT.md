@@ -138,12 +138,12 @@ YÊU CẦU:
 
 SAU KHI XONG, hãy:
 ✅ CHECKLIST:
-- [ ] Cấu trúc thư mục đầy đủ
-- [ ] requirements.txt có đủ thư viện
-- [ ] .env.example có GEMINI_API_KEY và MATHPIX keys
-- [ ] app/main.py chạy được: uvicorn app.main:app --reload
-- [ ] GET /health trả về {"status": "ok"}
-- [ ] Static mount hoạt động
+- [x] Cấu trúc thư mục đầy đủ
+- [x] requirements.txt có đủ thư viện
+- [x] .env.example có GEMINI_API_KEY và MATHPIX keys
+- [x] app/main.py chạy được: uvicorn app.main:app --reload
+- [x] GET /health trả về {"status": "ok"}
+- [x] Static mount hoạt động
 
 ⚠️ BÁO LỖI NẾU:
 - google-generativeai version conflict

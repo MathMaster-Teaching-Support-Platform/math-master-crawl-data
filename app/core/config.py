@@ -17,6 +17,15 @@ class Settings(BaseSettings):
     mongo_url: str = os.getenv("MONGO_URL", "mongodb://localhost:27017")
     mongo_db: str = os.getenv("MONGO_DB", "ai_chatbot")
 
+    # SGK PDF Processing
+    storage_path: str = os.getenv("STORAGE_PATH", "./storage")
+    gemini_api_key: Optional[str] = os.getenv("GEMINI_API_KEY")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    mathpix_app_id: Optional[str] = os.getenv("MATHPIX_APP_ID")
+    mathpix_app_key: Optional[str] = os.getenv("MATHPIX_APP_KEY")
+    mathpix_enabled: bool = os.getenv("MATHPIX_ENABLED", "false").lower() == "true"
+    max_file_size_mb: int = int(os.getenv("MAX_FILE_SIZE_MB", 50))
+
     class Config:
         env_file = ".env"
         extra = "allow"
