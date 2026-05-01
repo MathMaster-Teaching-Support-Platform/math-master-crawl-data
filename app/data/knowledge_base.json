@@ -1,0 +1,352 @@
+{
+  "greeting": {
+    "keywords": ["xin chào", "hello", "hi", "chào", "hey", "chào bạn", "xin chao", "good morning", "good afternoon", "helo"],
+    "response_hints": "Chào hỏi thân thiện, giới thiệu dịch vụ tư vấn tuyển sinh"
+  },
+  "score_lookup": {
+    "keywords": ["số báo danh", "sbd", "tra cứu điểm", "xem điểm", "điểm thi", "điểm thpt", "kết quả thi", "điểm tốt nghiệp", "điểm thi thpt", "tra điểm"],
+    "response_hints": "Yêu cầu cung cấp số báo danh 8 chữ số và khu vực thi"
+  },
+  "school_recommendation": {
+    "keywords": [
+      "bách khoa hà nội", "đại học bách khoa", "hust", "hbk",
+      "đhqg hà nội", "đại học quốc gia hà nội", "vnu", "hnu",
+      "đhqg tp.hcm", "đại học quốc gia hcm", "đhqg sài gòn",
+      "kinh tế quốc dân", "neu", "đại học kinh tế",
+      "ngoại thương", "ftu", "ftuh",
+      "fpt university", "fpt", "đại học fpt",
+      "đại học y hà nội", "hmu", "y hà nội",
+      "sư phạm hà nội", "hnue", "đại học sư phạm",
+      "rmit", "ueh", "đại học kinh tế hcm",
+      "đà nẵng", "đại học đà nẵng", "dut", "due",
+      "cần thơ", "đại học cần thơ", "ctu",
+      "trường nào", "nên thi trường", "chọn trường", "gợi ý trường",
+      "trường tốt", "trường uy tín", "trường top", "vào trường",
+      "ngưỡng điểm", "điểm chuẩn", "xét tuyển trường"
+    ],
+    "sample_schools": {
+      "bach_khoa_ha_noi": {
+        "name": "Đại học Bách Khoa Hà Nội",
+        "code": "BKA",
+        "location": "Hà Nội",
+        "type": "Công lập",
+        "strengths": ["Kỹ thuật", "Công nghệ", "Cơ khí", "Điện - Điện tử", "CNTT"],
+        "avg_admission_score_2024": 26.5,
+        "tuition_per_year_vnd": 22000000,
+        "website": "https://hust.edu.vn",
+        "description": "Trường kỹ thuật hàng đầu Việt Nam, đào tạo kỹ sư chất lượng cao"
+      },
+      "dhqg_ha_noi": {
+        "name": "Đại học Quốc gia Hà Nội",
+        "code": "QHD",
+        "location": "Hà Nội",
+        "type": "Công lập đặc biệt",
+        "strengths": ["Khoa học tự nhiên", "Khoa học xã hội", "Luật", "Kinh tế", "CNTT"],
+        "avg_admission_score_2024": 26.0,
+        "tuition_per_year_vnd": 20000000,
+        "website": "https://vnu.edu.vn",
+        "description": "Trường đại học hàng đầu, đa ngành, đa lĩnh vực tại Hà Nội"
+      },
+      "dhqg_hcm": {
+        "name": "Đại học Quốc gia TP.HCM",
+        "code": "QBS",
+        "location": "TP. Hồ Chí Minh",
+        "type": "Công lập đặc biệt",
+        "strengths": ["Kỹ thuật", "Công nghệ", "Kinh tế", "Khoa học"],
+        "avg_admission_score_2024": 25.5,
+        "tuition_per_year_vnd": 22000000,
+        "website": "https://vnuhcm.edu.vn",
+        "description": "Đại học quốc gia hàng đầu phía Nam"
+      },
+      "kinh_te_quoc_dan": {
+        "name": "Đại học Kinh tế Quốc dân",
+        "code": "NEU",
+        "location": "Hà Nội",
+        "type": "Công lập",
+        "strengths": ["Kinh tế", "Quản trị kinh doanh", "Tài chính", "Kế toán", "Marketing"],
+        "avg_admission_score_2024": 27.5,
+        "tuition_per_year_vnd": 21000000,
+        "website": "https://neu.edu.vn",
+        "description": "Trường kinh tế hàng đầu phía Bắc"
+      },
+      "ngoai_thuong": {
+        "name": "Đại học Ngoại Thương",
+        "code": "FTU",
+        "location": "Hà Nội",
+        "type": "Công lập",
+        "strengths": ["Kinh tế quốc tế", "Ngoại thương", "Quản trị kinh doanh", "Tài chính quốc tế"],
+        "avg_admission_score_2024": 28.0,
+        "tuition_per_year_vnd": 22000000,
+        "website": "https://ftu.edu.vn",
+        "description": "Trường chuyên đào tạo về ngoại thương và kinh doanh quốc tế"
+      },
+      "fpt_university": {
+        "name": "Đại học FPT",
+        "code": "FPT",
+        "location": "Hà Nội, TP.HCM, Đà Nẵng, Cần Thơ",
+        "type": "Tư thục",
+        "strengths": ["CNTT", "Phần mềm", "Kỹ thuật phần mềm", "AI", "Kinh doanh số"],
+        "avg_admission_score_2024": 22.0,
+        "tuition_per_year_vnd": 60000000,
+        "website": "https://uni.fpt.edu.vn",
+        "description": "Trường tư thục công nghệ hàng đầu, liên kết chặt với doanh nghiệp FPT"
+      },
+      "y_ha_noi": {
+        "name": "Đại học Y Hà Nội",
+        "code": "HMU",
+        "location": "Hà Nội",
+        "type": "Công lập",
+        "strengths": ["Y khoa", "Dược", "Y tế công cộng", "Điều dưỡng"],
+        "avg_admission_score_2024": 28.5,
+        "tuition_per_year_vnd": 15000000,
+        "website": "https://hmu.edu.vn",
+        "description": "Trường y hàng đầu Việt Nam, điểm đầu vào rất cao"
+      },
+      "su_pham_ha_noi": {
+        "name": "Đại học Sư phạm Hà Nội",
+        "code": "HNUE",
+        "location": "Hà Nội",
+        "type": "Công lập",
+        "strengths": ["Sư phạm", "Giáo dục", "Khoa học cơ bản"],
+        "avg_admission_score_2024": 25.0,
+        "tuition_per_year_vnd": 15000000,
+        "website": "https://hnue.edu.vn",
+        "description": "Trường đào tạo giáo viên hàng đầu cả nước"
+      }
+    },
+    "response_hints": "Gợi ý trường phù hợp dựa trên điểm số, sở thích và vị trí địa lý"
+  },
+  "major_advice": {
+    "keywords": [
+      "công nghệ thông tin", "cntt", "it", "lập trình", "phần mềm",
+      "y khoa", "bác sĩ", "y dược", "dược sĩ", "ngành y",
+      "kinh tế", "quản trị kinh doanh", "mba", "tài chính", "kế toán", "marketing",
+      "kỹ thuật", "cơ khí", "điện tử", "điện - điện tử", "tự động hóa",
+      "luật", "luật học", "pháp lý",
+      "sư phạm", "giáo viên", "giáo dục",
+      "kiến trúc", "xây dựng",
+      "ngoại ngữ", "tiếng anh", "tiếng nhật", "tiếng hàn",
+      "ngành hot", "ngành nghề", "chọn ngành", "nên học ngành", "cơ hội việc làm",
+      "triển vọng ngành", "lương ngành", "ngành tương lai"
+    ],
+    "hot_majors_2024": {
+      "công nghệ thông tin": {
+        "full_name": "Công nghệ Thông tin",
+        "demand": "Rất cao",
+        "avg_salary_vnd": 25000000,
+        "top_schools": ["Bách Khoa Hà Nội", "ĐHQG HCM", "FPT University"],
+        "career_paths": ["Lập trình viên", "Kỹ sư phần mềm", "Data Scientist", "AI Engineer", "DevOps"],
+        "outlook": "Nhu cầu tuyển dụng cao, lương hấp dẫn, cơ hội làm việc quốc tế"
+      },
+      "y khoa": {
+        "full_name": "Y Khoa (Bác sĩ đa khoa)",
+        "demand": "Cao",
+        "avg_salary_vnd": 20000000,
+        "top_schools": ["Đại học Y Hà Nội", "Đại học Y Dược TP.HCM"],
+        "career_paths": ["Bác sĩ", "Nghiên cứu y học", "Quản lý y tế"],
+        "outlook": "Nghề tôn trọng, ổn định, học 6 năm, đòi hỏi điểm cao"
+      },
+      "kinh tế": {
+        "full_name": "Kinh tế - Quản trị kinh doanh",
+        "demand": "Cao",
+        "avg_salary_vnd": 18000000,
+        "top_schools": ["Kinh tế Quốc dân", "Ngoại Thương", "ĐHQG HCM"],
+        "career_paths": ["Quản lý doanh nghiệp", "Phân tích tài chính", "Marketing", "Tư vấn chiến lược"],
+        "outlook": "Đa dạng cơ hội, nhiều lĩnh vực ứng dụng"
+      },
+      "kỹ thuật điện - điện tử": {
+        "full_name": "Kỹ thuật Điện - Điện tử",
+        "demand": "Cao",
+        "avg_salary_vnd": 20000000,
+        "top_schools": ["Bách Khoa Hà Nội", "Bách Khoa HCM", "Học viện Kỹ thuật Quân sự"],
+        "career_paths": ["Kỹ sư điện", "Kỹ sư tự động hóa", "IoT Engineer"],
+        "outlook": "Nhu cầu cao trong công nghiệp 4.0 và điện năng lượng tái tạo"
+      },
+      "luật": {
+        "full_name": "Luật",
+        "demand": "Trung bình - Cao",
+        "avg_salary_vnd": 18000000,
+        "top_schools": ["Đại học Luật Hà Nội", "Khoa Luật ĐHQG HN", "Đại học Luật TP.HCM"],
+        "career_paths": ["Luật sư", "Công chứng viên", "Thẩm phán", "Cố vấn pháp lý"],
+        "outlook": "Cần thiết trong mọi lĩnh vực, đòi hỏi điểm cao và khả năng ngôn ngữ tốt"
+      },
+      "data science": {
+        "full_name": "Khoa học Dữ liệu / AI",
+        "demand": "Rất cao",
+        "avg_salary_vnd": 30000000,
+        "top_schools": ["Bách Khoa Hà Nội", "ĐHQG Hà Nội", "FPT University"],
+        "career_paths": ["Data Scientist", "ML Engineer", "AI Researcher", "Business Analyst"],
+        "outlook": "Ngành siêu hot, lương cao nhất thị trường hiện nay"
+      }
+    },
+    "response_hints": "Tư vấn ngành học dựa trên sở thích, điểm số và triển vọng nghề nghiệp"
+  },
+  "tuition_scholarship": {
+    "keywords": [
+      "học phí", "chi phí học", "tiền học", "học bổng", "miễn giảm học phí",
+      "hỗ trợ tài chính", "vay học phí", "ngân hàng chính sách", "học phí bao nhiêu",
+      "học bổng toàn phần", "học bổng bán phần", "học bổng xuất sắc"
+    ],
+    "info": {
+      "public_universities_avg_tuition": "15 - 25 triệu đồng/năm",
+      "private_universities_avg_tuition": "40 - 80 triệu đồng/năm",
+      "scholarships": [
+        {
+          "name": "Học bổng xuất sắc trường",
+          "amount": "Miễn 50-100% học phí",
+          "condition": "Điểm đầu vào top trường, GPA cao"
+        },
+        {
+          "name": "Học bổng Chính phủ (322, Vingroup, v.v.)",
+          "amount": "Toàn phần hoặc bán phần",
+          "condition": "Theo từng chương trình cụ thể"
+        },
+        {
+          "name": "Vay vốn Ngân hàng Chính sách Xã hội",
+          "amount": "Tối đa 4 triệu/tháng",
+          "condition": "Hộ nghèo, cận nghèo, hoàn cảnh khó khăn"
+        }
+      ]
+    },
+    "response_hints": "Cung cấp thông tin học phí và học bổng theo từng trường/ngành cụ thể"
+  },
+  "schedule": {
+    "keywords": [
+      "lịch tuyển sinh", "thời gian đăng ký", "hạn nộp hồ sơ", "lịch thi", "ngày thi",
+      "khi nào đăng ký", "lịch xét tuyển", "thời hạn", "đăng ký nguyện vọng",
+      "thi thpt", "thi tốt nghiệp", "xét tuyển đại học", "mùa tuyển sinh"
+    ],
+    "timeline_2025": {
+      "thpt_exam": {
+        "registration": "Tháng 2 - 3/2025",
+        "exam_date": "Tháng 6/2025 (dự kiến)",
+        "result_announcement": "Tháng 7/2025"
+      },
+      "university_admission": {
+        "online_registration": "Tháng 7/2025 (sau khi có điểm THPT)",
+        "adjustment_period": "Tháng 7 - 8/2025",
+        "first_round_result": "Tháng 8/2025",
+        "enrollment": "Tháng 9/2025"
+      },
+      "important_notes": [
+        "Thí sinh được đăng ký tối đa 10 nguyện vọng",
+        "Có thể thay đổi nguyện vọng trong thời gian cho phép",
+        "Ưu tiên điểm theo khu vực và đối tượng",
+        "Nên kiểm tra thông tin chính thức tại tuyensinh.moet.gov.vn"
+      ]
+    },
+    "response_hints": "Cung cấp lịch tuyển sinh chi tiết và lưu ý quan trọng"
+  },
+  "score_analysis": {
+    "keywords": [
+      "điểm của tôi", "với điểm này", "điểm bao nhiêu", "bao nhiêu điểm đỗ",
+      "điểm chuẩn năm nay", "dự đoán điểm chuẩn", "điểm an toàn", "phân tích điểm",
+      "đủ điểm vào", "điểm có đỗ không", "tính điểm", "ưu tiên khu vực"
+    ],
+    "score_levels": {
+      "excellent": {
+        "range": "27+",
+        "description": "Xuất sắc",
+        "advice": "Bạn có thể chọn bất kỳ trường và ngành nào mình mơ ước. Hãy nhắm tới các trường top đầu như Bách Khoa Hà Nội, ĐHQG, Ngoại Thương, Y Hà Nội."
+      },
+      "good": {
+        "range": "24 - 26.9",
+        "description": "Khá tốt",
+        "advice": "Bạn có nhiều lựa chọn tốt. Các trường như ĐHQG Đà Nẵng, Kinh tế TP.HCM, Học viện Công nghệ Bưu chính là phù hợp."
+      },
+      "average_good": {
+        "range": "21 - 23.9",
+        "description": "Trung bình khá",
+        "advice": "Nhiều trường đại học khu vực chất lượng tốt phù hợp. Hãy cân nhắc các trường tỉnh hoặc các ngành ít cạnh tranh tại trường lớn."
+      },
+      "average": {
+        "range": "Dưới 21",
+        "description": "Trung bình",
+        "advice": "Cân nhắc các trường đại học địa phương hoặc cao đẳng chất lượng cao. Đây không phải là con đường duy nhất - hãy tìm hiểu thêm các lựa chọn."
+      }
+    },
+    "priority_points": {
+      "khu vực 1 (KV1)": 0.75,
+      "khu vực 2 nông thôn (KV2-NT)": 0.5,
+      "khu vực 2 (KV2)": 0.25,
+      "khu vực 3 (KV3)": 0,
+      "đối tượng 01 (ưu tiên cao nhất)": 2.0,
+      "đối tượng 02": 1.0
+    },
+    "response_hints": "Phân tích điểm số và đưa ra gợi ý trường/ngành phù hợp"
+  },
+  "admission_methods": {
+    "keywords": [
+      "xét học bạ", "phương thức xét tuyển", "xét tuyển thẳng", "thi đánh giá năng lực",
+      "đánh giá năng lực", "dgnl", "ielts", "sat", "xét hồ sơ", "hsa",
+      "phương thức nào", "nên thi theo cách nào", "xét tuyển kết hợp"
+    ],
+    "methods": [
+      {
+        "name": "Xét điểm thi THPT Quốc gia",
+        "description": "Dựa trên điểm thi 3 môn theo tổ hợp xét tuyển",
+        "pros": "Phổ biến nhất, công bằng, nhiều trường tham gia",
+        "cons": "Cạnh tranh cao, phụ thuộc một kỳ thi"
+      },
+      {
+        "name": "Xét học bạ THPT",
+        "description": "Dựa trên điểm học bạ lớp 10, 11, 12 hoặc học kỳ 1 lớp 12",
+        "pros": "Nhiều đợt xét, ít áp lực hơn",
+        "cons": "Không phải trường nào cũng áp dụng, tiêu chí khác nhau"
+      },
+      {
+        "name": "Thi đánh giá năng lực (ĐHQG HN/HCM)",
+        "description": "Kỳ thi riêng do ĐHQG tổ chức, đánh giá tư duy tổng hợp",
+        "pros": "Phổ biến tại trường top, thi nhiều lần trong năm",
+        "cons": "Cần ôn luyện riêng, không phải tất cả trường dùng"
+      },
+      {
+        "name": "Xét tuyển thẳng / ưu tiên xét tuyển",
+        "description": "Dành cho học sinh giỏi, giải quốc gia, quốc tế",
+        "pros": "Không cần thi, chỉ nộp hồ sơ minh chứng",
+        "cons": "Yêu cầu thành tích nổi bật"
+      }
+    ],
+    "response_hints": "Giải thích các phương thức xét tuyển và tư vấn phù hợp với từng học sinh"
+  },
+  "common_questions": {
+    "faqs": [
+      {
+        "question": "Điểm chuẩn đại học năm 2024 là bao nhiêu?",
+        "answer": "Điểm chuẩn năm 2024 dao động từ 15 đến 29 tùy trường và ngành. Các trường top như Y Hà Nội (~28), Ngoại Thương (~28), Bách Khoa Hà Nội (~26-27). Các ngành kỹ thuật phổ thông hơn thường 18-22 điểm."
+      },
+      {
+        "question": "Tôi có bao nhiêu nguyện vọng khi đăng ký xét tuyển?",
+        "answer": "Thí sinh được đăng ký tối đa 10 nguyện vọng theo hệ thống xét tuyển chung. Nên xếp nguyện vọng theo thứ tự ưu tiên giảm dần (nguyện vọng 1 là ưu tiên nhất)."
+      },
+      {
+        "question": "Điểm ưu tiên khu vực tính như thế nào?",
+        "answer": "KV1 (vùng sâu, vùng xa) cộng 0.75 điểm; KV2-NT (nông thôn) cộng 0.5 điểm; KV2 (thành phố loại vừa) cộng 0.25 điểm; KV3 (thành phố lớn) không cộng điểm."
+      },
+      {
+        "question": "Học ngành CNTT ra trường làm gì?",
+        "answer": "Ngành CNTT có rất nhiều hướng: lập trình viên, kỹ sư phần mềm, data analyst, AI engineer, cybersecurity, quản lý dự án IT... Lương trung bình khởi điểm 15-25 triệu/tháng, rất nhiều cơ hội làm remote và làm việc tại nước ngoài."
+      },
+      {
+        "question": "Trường nào đào tạo ngành CNTT tốt nhất?",
+        "answer": "Top trường CNTT tại Việt Nam: Bách Khoa Hà Nội, ĐHQG TP.HCM (BK HCM), FPT University, ĐHQG Hà Nội. Cả công lập và tư thục đều có chất lượng tốt tùy sở thích và điều kiện."
+      },
+      {
+        "question": "Thi THPT được mấy tổ hợp?",
+        "answer": "Tổ hợp phổ biến nhất: A00 (Toán, Lý, Hóa), A01 (Toán, Lý, Anh), B00 (Toán, Hóa, Sinh), C00 (Văn, Sử, Địa), D01 (Toán, Văn, Anh). Thí sinh có thể dùng nhiều tổ hợp để đăng ký vào các ngành khác nhau."
+      },
+      {
+        "question": "Cần điểm bao nhiêu để vào Đại học Y Hà Nội?",
+        "answer": "Đại học Y Hà Nội là một trong những trường có điểm chuẩn cao nhất. Ngành Y khoa thường yêu cầu từ 27.5 - 29 điểm tổ hợp B00. Thí sinh cần chuẩn bị rất kỹ."
+      },
+      {
+        "question": "FPT University học phí bao nhiêu?",
+        "answer": "Đại học FPT có học phí khoảng 50-65 triệu đồng/năm tùy ngành và năm học. Tuy nhiên nhà trường cũng có nhiều học bổng hấp dẫn và cơ hội việc làm tốt sau tốt nghiệp."
+      }
+    ]
+  },
+  "general": {
+    "keywords": [],
+    "response_hints": "Trả lời chung về tư vấn tuyển sinh đại học tại Việt Nam"
+  }
+}
