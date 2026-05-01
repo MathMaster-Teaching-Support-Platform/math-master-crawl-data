@@ -158,15 +158,26 @@ def _make_page_analyses():
 
 @pytest_asyncio.fixture(autouse=True)
 async def clean_test_db():
-    """Drop all SGK collections to ensure test isolation."""
+    """Drop all SGK collections to ensure test isolation.
+
+    Skips gracefully when MongoDB is mocked (TypeError from MagicMock await).
+    This allows phase-specific standalone tests to run under pytest without a
+    real MongoDB connection.
+    """
     from app.core.mongo import mongo_db
 
     _collections = ["books", "chapters", "lessons", "lesson_contents"]
-    for col in _collections:
-        await mongo_db[col].drop()
+    try:
+        for col in _collections:
+            await mongo_db[col].drop()
+    except TypeError:
+        pass  # Motor is mocked — skip cleanup
     yield
-    for col in _collections:
-        await mongo_db[col].drop()
+    try:
+        for col in _collections:
+            await mongo_db[col].drop()
+    except TypeError:
+        pass  # Motor is mocked — skip cleanup
 
 
 # ---------------------------------------------------------------------------

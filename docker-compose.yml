@@ -10,6 +10,12 @@ services:
       - mongo_data:/data/db
     environment:
       MONGO_INITDB_DATABASE: sgk_toan
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   app:
     build: .
@@ -20,11 +26,13 @@ services:
       - .env
     environment:
       MONGO_URL: mongodb://mongo:27017
+      PORT: "8000"
     volumes:
       - ./storage:/app/storage
       - ./data:/app/data
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
 
 volumes:
   mongo_data:

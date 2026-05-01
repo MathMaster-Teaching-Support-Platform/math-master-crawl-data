@@ -1228,15 +1228,15 @@ SCENARIO 6: Delete
 
 SAU KHI XONG, hãy:
 ✅ CHECKLIST:
-- [ ] conftest.py setup test DB + mock services
-- [ ] test_book.pdf fixture tạo được
-- [ ] SCENARIO 1: upload + process (mock) pass
-- [ ] SCENARIO 2: validation lỗi đúng status code
-- [ ] SCENARIO 3: query structure trả về đúng
-- [ ] SCENARIO 4: export đúng format
-- [ ] SCENARIO 5: search có kết quả
-- [ ] SCENARIO 6: delete + 404 confirm
-- [ ] Test cleanup: không dirty data giữa các test
+- [x] conftest.py setup test DB + mock services
+- [x] test_book.pdf fixture tạo được
+- [x] SCENARIO 1: upload + process (mock) pass
+- [x] SCENARIO 2: validation lỗi đúng status code
+- [x] SCENARIO 3: query structure trả về đúng
+- [x] SCENARIO 4: export đúng format
+- [x] SCENARIO 5: search có kết quả
+- [x] SCENARIO 6: delete + 404 confirm
+- [x] Test cleanup: không dirty data giữa các test
 
 ⚠️ BÁO LỖI NẾU:
 - Mock không intercept được Gemini calls
