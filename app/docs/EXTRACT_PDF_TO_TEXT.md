@@ -1,4 +1,5 @@
 # 📚 SGK TOÁN PDF → API — AI PROMPT GUIDE v2
+
 > **Stack:** FastAPI + MongoDB + Gemini Flash (OCR chính) + Mathpix (formula fallback)  
 > **Nguyên tắc:** Làm từng step một. Test xong mới qua bước kế. Copy từng prompt vào AI, chờ checklist ✅ trước khi tiếp.
 
@@ -28,16 +29,19 @@ FastAPI query layer
 ```
 
 ### Tại sao Gemini Flash thay vì local stack?
-| | Local (PaddleOCR + Pix2Text) | Gemini Flash |
-|---|---|---|
-| Formula accuracy | 60–75% | 85–92% |
-| Code phức tạp | Rất cao (5 thư viện) | Thấp (1 API call) |
-| RAM yêu cầu | 8GB+ | Bình thường |
-| Chi phí | $0 nhưng accuracy thấp | Free (250 req/ngày) |
-| Setup | Khó (CUDA, paddle...) | Dễ (pip install) |
+
+|                  | Local (PaddleOCR + Pix2Text) | Gemini Flash        |
+| ---------------- | ---------------------------- | ------------------- |
+| Formula accuracy | 60–75%                       | 85–92%              |
+| Code phức tạp    | Rất cao (5 thư viện)         | Thấp (1 API call)   |
+| RAM yêu cầu      | 8GB+                         | Bình thường         |
+| Chi phí          | $0 nhưng accuracy thấp       | Free (250 req/ngày) |
+| Setup            | Khó (CUDA, paddle...)        | Dễ (pip install)    |
 
 ### Khi nào dùng Mathpix fallback?
+
 Mathpix hỗ trợ toàn bộ LaTeX math commands chuẩn: `\frac`, `\sum`, `\int`, `\sqrt`, `\alpha`...`\omega`, `\mathbb`, `\mathcal`, tất cả ký hiệu tập hợp, mũi tên, hình học — đủ cho SGK phổ thông. Dùng Mathpix khi:
+
 - Gemini trả về latex trống hoặc rác (`confidence < 0.6`)
 - Block công thức phức tạp: tích phân, ma trận, tổng có giới hạn
 - Ảnh chất lượng thấp mà Gemini fail
@@ -285,7 +289,7 @@ YÊU CẦU:
 4. PROMPT TEMPLATE cho Gemini (quan trọng nhất):
 
 SYSTEM_PROMPT = """
-Bạn là AI chuyên phân tích sách giáo khoa Toán Việt Nam. 
+Bạn là AI chuyên phân tích sách giáo khoa Toán Việt Nam.
 Hãy phân tích ảnh trang SGK và trả về JSON CHÍNH XÁC theo format sau.
 CHỈ trả về JSON, không giải thích thêm.
 """
@@ -295,7 +299,7 @@ Phân tích trang SGK Toán này. Nhận diện TẤT CẢ các block nội dung
 
 Với mỗi block, xác định:
 - type: chapter_title | lesson_title | text | formula | exercise | image | table | definition | note
-- content: nội dung text (nếu có)  
+- content: nội dung text (nếu có)
 - latex: công thức LaTeX chuẩn (nếu type=formula). Dùng đúng commands: \\frac{}{}, \\sqrt{}, \\sum_{i=1}^{n}, \\int_{a}^{b}, \\alpha, \\beta, \\gamma, \\Delta, \\Sigma, \\mathbb{R}, \\vec{v}, \\overline{AB}, \\angle, \\perp, \\parallel, \\in, \\subset, \\cup, \\cap
 - image_bbox: [x1,y1,x2,y2] tọa độ tương đối 0-1 nếu type=image (null nếu không phải)
 - caption: caption của hình (null nếu không có)
@@ -394,7 +398,7 @@ SAU KHI XONG, hãy:
 🧪 TEST:
   import asyncio
   from app.services.gemini_service import GeminiOCRService
-  
+
   async def test():
       svc = GeminiOCRService()
       result = await svc.analyze_page("data/books/test/pages/page_001.jpg", 1)
@@ -403,7 +407,7 @@ SAU KHI XONG, hãy:
           print(f"  [{b.type}] order={b.order} conf={b.confidence:.2f}")
           if b.type == "formula":
               print(f"    LaTeX: {b.latex}")
-  
+
   asyncio.run(test())
 
 ⏸️ PENDING: Dừng tại đây, chờ tôi confirm "OK Phase 2".
@@ -509,14 +513,14 @@ SAU KHI XONG, hãy:
 
 🧪 TEST (với MATHPIX_ENABLED=false trước):
   from app.services.mathpix_service import MathpixService, validate_latex
-  
+
   svc = MathpixService()
   print(f"Mathpix enabled: {svc.is_enabled()}")
-  
+
   assert validate_latex(r"\frac{1}{2}") == True
   assert validate_latex("abc xyz") == False
   assert validate_latex(r"\sum_{i=1}^{n} x_i") == True
-  
+
   # Test với key thật:
   # result = svc.extract_formula("page_005.jpg", (200, 300, 500, 350))
   # print(f"LaTeX: {result.latex}, confidence: {result.confidence}")
@@ -697,16 +701,16 @@ class BookStructure:
 3. Class StructureParser:
 
    parse_book(pages: list[PageAnalysis], grade: int, title: str) -> BookStructure
-   
+
    _detect_chapter(block: ContentBlock) -> tuple[int, str, str] | None
    # Return (chapter_num, roman, chapter_title) hoặc None
-   
+
    _detect_lesson(block: ContentBlock) -> tuple[int, str] | None
    # Return (lesson_num, lesson_title) hoặc None
-   
+
    _detect_exercise(text: str) -> tuple[str, int] | None
    # Return (exercise_type, exercise_num) hoặc None
-   
+
    _convert_block(block: ContentBlock, image_result: ImageResult | None) -> FinalContentBlock
 
 4. QUAN TRỌNG — xử lý block "chapter_title" và "lesson_title" từ Gemini:
@@ -718,7 +722,7 @@ class BookStructure:
 SAU KHI XONG, hãy:
 ✅ CHECKLIST:
 - [x] Chapter detect đúng cả La mã và số Ả rập
-- [x] Lesson detect đúng "Bài X" và "§X"  
+- [x] Lesson detect đúng "Bài X" và "§X"
 - [x] Exercise type phân biệt đúng 7 loại
 - [x] Gemini labels được ưu tiên hơn regex
 - [x] unassigned_blocks chứa content trước chapter đầu tiên
@@ -732,7 +736,7 @@ SAU KHI XONG, hãy:
 
 🧪 TEST (dùng mock PageAnalysis):
   from app.services.structure_parser import StructureParser
-  
+
   mock_blocks = [
       ContentBlock(type="chapter_title", content="Chương I. SỐ HỮU TỈ", order=1, ...),
       ContentBlock(type="lesson_title", content="Bài 1. Số hữu tỉ", order=2, ...),
@@ -822,7 +826,7 @@ class BookDB(BookCreate):
 class BookRepository:
     def __init__(self):
         self.collection = mongo_db["books"]  # from app.core.mongo import mongo_db
-    
+
     async def create(self, book: BookCreate, file_path: str) -> str
     async def get_by_id(self, book_id: str) -> BookDB | None
     async def list_all(self, grade: int = None) -> list[BookDB]
@@ -891,7 +895,7 @@ Implement PHASE 7: Processing Pipeline — kết nối tất cả services.
 File: app/services/processing_pipeline.py
 
 FLOW HOÀN CHỈNH:
-PDF → Pages → [Gemini per page] → [Mathpix fallback cho formula khó] → 
+PDF → Pages → [Gemini per page] → [Mathpix fallback cho formula khó] →
 [Image crop] → [Structure parse] → MongoDB
 
 YÊU CẦU:
@@ -911,7 +915,7 @@ class ProcessingPipeline:
         self.book_repo = book_repository      # from app.repositories.book_repository
         self.gemini_call_count = 0
         self.mathpix_call_count = 0
-    
+
     async def run(self) -> None: ...
 
 2. PIPELINE STEPS:
@@ -922,37 +926,37 @@ async def run(self):
         await self._update("ingesting", 5)
         pages_info = self.pdf_parser.render_pages(self.pdf_path, ...)
         total = len(pages_info)
-        
+
         # PHASE 2: Gemini OCR per page
         await self._update("analyzing", 10)
         page_analyses = []
         for i, page_info in enumerate(pages_info):
             analysis = await self.gemini.analyze_page(page_info.image_path, page_info.page_num)
             self.gemini_call_count += 1
-            
+
             # PHASE 3: Mathpix fallback cho formula needs_mathpix=True
             analysis = await self._apply_mathpix_fallback(analysis, page_info.image_path)
-            
+
             # PHASE 4: Extract images
             analysis = await self._extract_images(analysis, page_info)
-            
+
             page_analyses.append(analysis)
-            
+
             # Update progress (10% → 80%)
             progress = 10 + int((i + 1) / total * 70)
             await self._update("analyzing", progress, f"Page {i+1}/{total}")
-        
+
         # PHASE 5: Structure parse
         await self._update("parsing", 82)
         book_structure = self.structure_parser.parse_book(page_analyses, ...)
-        
+
         # PHASE 6: Save to MongoDB
         await self._update("saving", 88)
         await self._save_to_db(book_structure)
-        
+
         # Done
         await self._update_done(self.gemini_call_count, self.mathpix_call_count)
-        
+
     except Exception as e:
         await self.book_repo.update_status(self.book_id, "error", error=str(e))
         raise
@@ -1060,7 +1064,7 @@ GET    /api/v1/books/{book_id}
   - Return: BookDetail (gồm cả stats: gemini_calls, mathpix_calls)
 
 GET    /api/v1/books/{book_id}/status
-  - Return: {"status": "...", "progress": 45, "current_phase": "analyzing", 
+  - Return: {"status": "...", "progress": 45, "current_phase": "analyzing",
              "processed_pages": 12, "total_pages": 180}
   - Dùng để frontend polling
 
@@ -1117,16 +1121,16 @@ EXPORT CHUNKS FORMAT (cho RAG):
 
 SAU KHI XONG, hãy:
 ✅ CHECKLIST:
-- [ ] POST /upload nhận file, trigger background task, trả về book_id
-- [ ] GET /status trả về progress real-time
-- [ ] GET /chapters list đúng theo book_id
-- [ ] GET /lessons/content trả về đủ blocks (text, formula, image, exercise)
-- [ ] Export JSON đúng format spec ban đầu
-- [ ] Export Markdown format đẹp với formula LaTeX
-- [ ] Export chunks có metadata đầy đủ
-- [ ] Search tìm được text và latex
-- [ ] Error 404 khi book_id không tồn tại
-- [ ] Static files serve ảnh đúng
+- [x] POST /upload nhận file, trigger background task, trả về book_id
+- [x] GET /status trả về progress real-time
+- [x] GET /chapters list đúng theo book_id
+- [x] GET /lessons/content trả về đủ blocks (text, formula, image, exercise)
+- [x] Export JSON đúng format spec ban đầu
+- [x] Export Markdown format đẹp với formula LaTeX
+- [x] Export chunks có metadata đầy đủ
+- [x] Search tìm được text và latex
+- [x] Error 404 khi book_id không tồn tại
+- [x] Static files serve ảnh đúng
 
 ⚠️ BÁO LỖI NẾU:
 - Upload file không lưu được
@@ -1139,9 +1143,9 @@ SAU KHI XONG, hãy:
   BOOK_ID=$(curl -s -X POST http://localhost:8000/api/v1/books/upload \
     -F "file=@toan8.pdf" -F "grade=8" -F "publisher=CTST" -F "title=Toán 8" \
     | python -c "import sys,json; print(json.load(sys.stdin)['book_id'])")
-  
+
   echo "Book: $BOOK_ID"
-  
+
   # Poll status
   while true; do
     RESP=$(curl -s http://localhost:8000/api/v1/books/$BOOK_ID/status)
@@ -1150,7 +1154,7 @@ SAU KHI XONG, hãy:
     if [ "$STATUS" = "done" ] || [ "$STATUS" = "error" ]; then break; fi
     sleep 5
   done
-  
+
   # Query
   curl http://localhost:8000/api/v1/books/$BOOK_ID/chapters | python -m json.tool
 
@@ -1310,20 +1314,22 @@ YÊU CẦU:
 
 ### Stack cuối cùng
 
-| Layer | Tool | Vai trò |
-|-------|------|---------|
-| PDF Ingestion | PyMuPDF | Render trang → JPEG 150 DPI |
-| OCR chính | Gemini Flash Vision | Text + layout + formula + detect image regions |
-| Formula fallback | Mathpix v3/text | Khi Gemini fail với công thức phức tạp |
-| Image storage | Local JPEG | Crop từ bbox, serve qua FastAPI static |
-| Structure | Rule Engine (regex) | Detect Chương/Bài từ Gemini labels |
-| Database | MongoDB + Motor | Async, text index cho search |
-| API | FastAPI | REST endpoints + BackgroundTasks |
+| Layer            | Tool                | Vai trò                                        |
+| ---------------- | ------------------- | ---------------------------------------------- |
+| PDF Ingestion    | PyMuPDF             | Render trang → JPEG 150 DPI                    |
+| OCR chính        | Gemini Flash Vision | Text + layout + formula + detect image regions |
+| Formula fallback | Mathpix v3/text     | Khi Gemini fail với công thức phức tạp         |
+| Image storage    | Local JPEG          | Crop từ bbox, serve qua FastAPI static         |
+| Structure        | Rule Engine (regex) | Detect Chương/Bài từ Gemini labels             |
+| Database         | MongoDB + Motor     | Async, text index cho search                   |
+| API              | FastAPI             | REST endpoints + BackgroundTasks               |
 
 ### Mathpix LaTeX Coverage cho SGK Toán
+
 Mathpix hỗ trợ đầy đủ tất cả ký hiệu cần thiết:
+
 - **Đại số:** `\frac`, `\sqrt`, `^`, `_`, `\pm`, `\cdot`, `\times`, `\div`
-- **Lượng giác:** `\sin`, `\cos`, `\tan`, `\cot`, `\pi`, `\theta`, `\alpha`..`\omega`  
+- **Lượng giác:** `\sin`, `\cos`, `\tan`, `\cot`, `\pi`, `\theta`, `\alpha`..`\omega`
 - **Giải tích:** `\int`, `\sum`, `\prod`, `\lim`, `\partial`, `\infty`
 - **Hình học:** `\angle`, `\perp`, `\parallel`, `\triangle`, `\overline`, `\vec`
 - **Tập hợp:** `\in`, `\notin`, `\subset`, `\cup`, `\cap`, `\emptyset`, `\mathbb{R}`
@@ -1332,17 +1338,21 @@ Mathpix hỗ trợ đầy đủ tất cả ký hiệu cần thiết:
 
 ### Chi phí ước tính (5 cuốn SGK ~1000 trang)
 
-| Dịch vụ | Free limit | Chi phí nếu vượt |
-|---------|-----------|-----------------|
-| Gemini Flash | 250 req/ngày (chia nhiều ngày) | $0.075/1M tokens |
-| Mathpix (optional) | $29 credit sau $20 setup | $0.002/ảnh |
-| MongoDB | Local / MongoDB Atlas free 512MB | $0 |
-| Storage | Local disk | $0 |
-| **Tổng** | **~$0–25 cho cả dự án** | |
+| Dịch vụ            | Free limit                       | Chi phí nếu vượt |
+| ------------------ | -------------------------------- | ---------------- |
+| Gemini Flash       | 250 req/ngày (chia nhiều ngày)   | $0.075/1M tokens |
+| Mathpix (optional) | $29 credit sau $20 setup         | $0.002/ảnh       |
+| MongoDB            | Local / MongoDB Atlas free 512MB | $0               |
+| Storage            | Local disk                       | $0               |
+| **Tổng**           | **~$0–25 cho cả dự án**          |                  |
 
 ### Tips tối ưu chi phí Gemini
+
 - Process tối đa 200 trang/ngày (chia 2 ngày cho 1 cuốn SGK)
 - Compress JPEG < 100KB/trang trước khi gửi (giảm token cost)
 - Cache response: nếu cùng page_hash → không gọi lại Gemini
 - Chỉ gọi Mathpix khi thực sự cần (confidence < 0.6)
+
+```
+
 ```
