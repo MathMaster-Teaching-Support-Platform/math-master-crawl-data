@@ -12,8 +12,8 @@ import os
 import sys
 from pathlib import Path
 
-# Add app to path
-sys.path.insert(0, str(Path(__file__).parent))
+# Add app to path (parent directory of tests/)
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.services.pdf_parser import (
     validate_pdf,
@@ -65,7 +65,7 @@ def create_test_pdf():
     return test_pdf_path
 
 
-def test_pdf_parser():
+def run_phase1_tests():
     """Test all pdf_parser functions."""
     print("=" * 70)
     print("PHASE 1: PDF Ingestion — Test Suite")
@@ -139,7 +139,7 @@ def test_pdf_parser():
 
 if __name__ == "__main__":
     try:
-        success = test_pdf_parser()
+        success = run_phase1_tests()
         sys.exit(0 if success else 1)
     except Exception as e:
         print(f"\n❌ ERROR: {e}")

@@ -7,7 +7,7 @@
 Run the standalone test script:
 
 ```bash
-python test_phase1.py
+python tests/test_phase1.py
 ```
 
 This script will:

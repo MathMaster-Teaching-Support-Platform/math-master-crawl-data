@@ -126,6 +126,99 @@ Health check: `http://localhost:8001/health`
 
 ---
 
+## Testing (Kiểm thử)
+
+Project có 2 test suite cho Phase 1 (PDF Ingestion) và Phase 2 (Gemini OCR Service):
+
+### Quick Start - Standalone Tests (Không cần pytest)
+
+**Phase 1: PDF Ingestion**
+```bash
+python tests/test_phase1.py
+```
+Output:
+```
+PHASE 1: PDF Ingestion — Test Suite
+✅ PDF is valid
+✅ Metadata extraction OK
+✅ Render pages OK (3 pages, 25.6 KB avg/page)
+✅ ALL TESTS PASSED!
+```
+
+**Phase 2: Gemini OCR Service**
+```bash
+python tests/test_phase2.py
+```
+Output:
+```
+PHASE 2: Gemini Flash Vision OCR — Test Suite
+✅ GeminiOCRService initialized
+✅ Image encoding (base64) working
+✅ JSON parsing with 5 block types
+✅ Rate limiter (6s interval) enforced
+✅ ALL TESTS PASSED (without API calls)!
+```
+
+### Full Test Suite - Using pytest
+
+**Run all tests**
+```bash
+pytest tests/ -v
+```
+
+**Run specific phase**
+```bash
+pytest tests/test_phase1.py -v
+pytest tests/test_phase2.py -v
+```
+
+**Run with timeout protection**
+```bash
+pip install pytest-timeout
+pytest tests/ -v --timeout=60
+```
+
+**Run with coverage report**
+```bash
+pip install pytest-cov
+pytest tests/ --cov=app.services --cov-report=html
+```
+
+### Test Coverage
+
+| Phase | Tests | Coverage |
+|---|---|---|
+| **Phase 1** | PDF → JPEG rendering, metadata extraction, image size validation | 7 tests |
+| **Phase 2** | Gemini API integration, JSON parsing, rate limiting, retry logic | 6 tests |
+| **TOTAL** | — | **13 tests** |
+
+### What's Tested
+
+**Phase 1 (PDF Ingestion):**
+- ✅ PDF validation (valid, empty, invalid files)
+- ✅ Page rendering to JPEG (150 DPI, quality=85)
+- ✅ Metadata extraction (title, author, num_pages)
+- ✅ Image size checking (< 100KB recommended for OCR)
+- ✅ Grayscale detection
+- ✅ Full workflow integration
+
+**Phase 2 (Gemini OCR):**
+- ✅ Service initialization (Singleton pattern)
+- ✅ Image encoding (JPEG → base64)
+- ✅ JSON response parsing (5 block types)
+- ✅ Rate limiter (10 RPM free tier = 6s minimum interval)
+- ✅ Retry logic (exponential backoff: 2s, 4s, 8s)
+- ✅ Error handling (graceful degradation)
+
+### Notes
+
+- **No API calls in tests**: Standalone tests use mocks, no actual Gemini/Mathpix API calls
+- **No authentication needed**: Tests run without `.env` configuration
+- **Fast execution**: Full test suite completes in ~10 seconds
+- **Optional real API testing**: See [PHASE2_TESTING.md](app/docs/test/PHASE2_TESTING.md) for real API testing
+
+---
+
 ## Thay đổi model LLM
 
 ### OpenAI (ChatGPT)

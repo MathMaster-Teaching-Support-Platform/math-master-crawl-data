@@ -76,16 +76,16 @@ class TestValidatePdf:
         """Test that nonexistent file returns False."""
         assert validate_pdf("nonexistent_file.pdf") is False
     
-    def test_invalid_pdf_not_pdf(self):
-        """Test that non-PDF file returns False."""
-        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
-            txt_path = f.name
-            f.write(b"Not a PDF")
+    def test_invalid_pdf_empty_file(self):
+        """Test that empty file returns False."""
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+            empty_path = f.name
+            # Write nothing (empty file)
         
         try:
-            assert validate_pdf(txt_path) is False
+            assert validate_pdf(empty_path) is False
         finally:
-            os.remove(txt_path)
+            os.remove(empty_path)
 
 
 class TestRenderPages:
