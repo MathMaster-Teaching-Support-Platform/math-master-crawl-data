@@ -493,14 +493,14 @@ FALLBACK KHI MATHPIX DISABLED (settings.mathpix_enabled = False):
 
 SAU KHI XONG, hãy:
 ✅ CHECKLIST:
-- [ ] MathpixService.is_enabled() check config đúng
-- [ ] extract_formula() crop bbox chính xác
-- [ ] Preprocess: grayscale + padding + compress < 100KB
-- [ ] POST đến Mathpix API thành công
-- [ ] Response parse đúng (latex_styled, confidence)
-- [ ] validate_latex() reject chuỗi rác
-- [ ] Fallback hoạt động khi MATHPIX_ENABLED=false
-- [ ] Không crash khi API unavailable
+- [x] MathpixService.is_enabled() check config đúng
+- [x] extract_formula() crop bbox chính xác
+- [x] Preprocess: grayscale + padding + compress < 100KB
+- [x] POST đến Mathpix API thành công
+- [x] Response parse đúng (latex_styled, confidence)
+- [x] validate_latex() reject chuỗi rác
+- [x] Fallback hoạt động khi MATHPIX_ENABLED=false
+- [x] Không crash khi API unavailable
 
 ⚠️ BÁO LỖI NẾU:
 - Mathpix trả về 401 → API key sai
