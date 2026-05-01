@@ -5,6 +5,7 @@ from app.core.config import settings
 from app.controllers import chat_controller, ranking_controller
 from app.controllers.university_controller import router as university_router
 from app.controllers import book_controller, chapter_controller, lesson_controller, search_controller
+from app.core.mongo import mongo_db
 import os
 
 app = FastAPI(
@@ -58,6 +59,22 @@ async def health_check():
         "gemini": bool(settings.gemini_api_key),
         "mathpix": settings.mathpix_enabled,
     }
+
+
+@app.on_event("startup")
+async def create_indexes():
+    await mongo_db["books"].create_index("grade")
+    await mongo_db["books"].create_index("status")
+    await mongo_db["chapters"].create_index(
+        [("book_id", 1), ("chapter_index", 1)], unique=True
+    )
+    await mongo_db["lessons"].create_index(
+        [("chapter_id", 1), ("lesson_index", 1)], unique=True
+    )
+    await mongo_db["lesson_contents"].create_index([("lesson_id", 1), ("order", 1)])
+    await mongo_db["lesson_contents"].create_index(
+        [("content", "text"), ("latex", "text")]
+    )
 
 if __name__ == "__main__":
     import uvicorn

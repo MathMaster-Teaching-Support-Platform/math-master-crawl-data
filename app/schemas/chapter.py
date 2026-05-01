@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
 
 
@@ -11,4 +11,6 @@ class ChapterCreate(BaseModel):
 
 
 class ChapterDB(ChapterCreate):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str = Field(alias="_id")

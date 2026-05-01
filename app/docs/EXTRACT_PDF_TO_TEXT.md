@@ -717,13 +717,13 @@ class BookStructure:
 
 SAU KHI XONG, hãy:
 ✅ CHECKLIST:
-- [ ] Chapter detect đúng cả La mã và số Ả rập
-- [ ] Lesson detect đúng "Bài X" và "§X"  
-- [ ] Exercise type phân biệt đúng 7 loại
-- [ ] Gemini labels được ưu tiên hơn regex
-- [ ] unassigned_blocks chứa content trước chapter đầu tiên
-- [ ] Chapter index là số, có thêm roman_index nếu có
-- [ ] parse_book() không crash với SGK không có chapter rõ ràng
+- [x] Chapter detect đúng cả La mã và số Ả rập
+- [x] Lesson detect đúng "Bài X" và "§X"  
+- [x] Exercise type phân biệt đúng 7 loại
+- [x] Gemini labels được ưu tiên hơn regex
+- [x] unassigned_blocks chứa content trước chapter đầu tiên
+- [x] Chapter index là số, có thêm roman_index nếu có
+- [x] parse_book() không crash với SGK không có chapter rõ ràng
 
 ⚠️ BÁO LỖI NẾU:
 - Regex false positive (match nhầm text thường)
@@ -850,13 +850,13 @@ YÊU CẦU:
 
 SAU KHI XONG, hãy:
 ✅ CHECKLIST:
-- [ ] Models valid với Pydantic v2
-- [ ] ObjectId convert đúng sang str
-- [ ] BookDB có progress + current_phase + gemini_calls + mathpix_calls
-- [ ] Repositories đủ CRUD
-- [ ] Text index cho search tạo thành công
-- [ ] Unique indexes tránh duplicate chapter/lesson
-- [ ] Timestamps UTC
+- [x] Models valid với Pydantic v2
+- [x] ObjectId convert đúng sang str
+- [x] BookDB có progress + current_phase + gemini_calls + mathpix_calls
+- [x] Repositories đủ CRUD
+- [x] Text index cho search tạo thành công
+- [x] Unique indexes tránh duplicate chapter/lesson
+- [x] Timestamps UTC
 
 ⚠️ BÁO LỖI NẾU:
 - Pydantic v2 validator syntax khác v1
