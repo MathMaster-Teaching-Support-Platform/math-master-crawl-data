@@ -30,10 +30,13 @@ for _mod in ["google", "google.generativeai", "fitz", "rapidfuzz", "rapidfuzz.fu
         sys.modules[_mod] = MagicMock()
 
 # motor.motor_asyncio has a custom metaclass; provide a plain replacement.
+# Only stub motor if it has NOT already been imported (e.g., by conftest.py),
+# to avoid polluting the real Motor references used by the e2e tests.
 _motor_mod = types.ModuleType("motor.motor_asyncio")
 _motor_mod.AsyncIOMotorClient = MagicMock
-sys.modules["motor"] = MagicMock()
-sys.modules["motor.motor_asyncio"] = _motor_mod
+if "motor" not in sys.modules or "motor.motor_asyncio" not in sys.modules:
+    sys.modules["motor"] = MagicMock()
+    sys.modules["motor.motor_asyncio"] = _motor_mod
 
 
 # ---------------------------------------------------------------------------
@@ -290,9 +293,10 @@ def test_fixture_pdf_creation():
 
     try:
         doc = _fitz.open(stream=pdf_bytes, filetype="pdf")
-        assert doc.page_count >= 1
+        page_count = doc.page_count
+        assert page_count >= 1
         doc.close()
-        print_ok(f"PyMuPDF parsed PDF ({doc.page_count} pages)")
+        print_ok(f"PyMuPDF parsed PDF ({page_count} pages)")
     except Exception as e:
         print_error(f"PyMuPDF could not parse test PDF: {e}")
 

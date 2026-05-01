@@ -6,7 +6,7 @@ python-dotenv==1.2.2
 pydantic==2.13.3
 websockets==12.0
 aiohttp==3.11.18
-httpx==0.28.1
+httpx>=0.23.0,<0.28
 beautifulsoup4==4.12.2
 openai==1.109.1
 pydantic-settings==2.14.0

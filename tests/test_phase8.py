@@ -30,11 +30,14 @@ for _mod in [
 
 # motor.motor_asyncio uses a custom metaclass; provide a plain-class replacement
 # so app.core.mongo can import without a real MongoDB connection.
+# Only stub motor if it has NOT already been imported (e.g., by conftest.py),
+# to avoid polluting the real Motor references used by the e2e tests.
 import types as _types
-_motor_mock = _types.ModuleType("motor.motor_asyncio")
-_motor_mock.AsyncIOMotorClient = MagicMock  # plain class — no metaclass conflict
-sys.modules["motor"] = MagicMock()
-sys.modules["motor.motor_asyncio"] = _motor_mock
+if "motor" not in sys.modules or "motor.motor_asyncio" not in sys.modules:
+    _motor_mock = _types.ModuleType("motor.motor_asyncio")
+    _motor_mock.AsyncIOMotorClient = MagicMock  # plain class — no metaclass conflict
+    sys.modules["motor"] = MagicMock()
+    sys.modules["motor.motor_asyncio"] = _motor_mock
 
 
 def print_header(text):

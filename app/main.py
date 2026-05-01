@@ -63,6 +63,8 @@ async def health_check():
 
 @app.on_event("startup")
 async def create_indexes():
+    if os.getenv("SKIP_DB_INIT"):
+        return
     await mongo_db["books"].create_index("grade")
     await mongo_db["books"].create_index("status")
     await mongo_db["chapters"].create_index(
