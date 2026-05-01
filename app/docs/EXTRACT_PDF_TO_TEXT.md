@@ -213,12 +213,12 @@ PATH CONVENTION:
 
 SAU KHI XONG, hãy:
 ✅ CHECKLIST:
-- [ ] render_pages() output JPEG (không phải PNG)
-- [ ] File size hợp lý: < 200KB/trang ở 150 DPI
-- [ ] PageInfo dataclass đủ fields
-- [ ] check_image_size() warn khi > 100KB
-- [ ] extract_pdf_metadata() trả về đủ info
-- [ ] Không memory leak (dùng context manager fitz.open)
+- [x] render_pages() output JPEG (không phải PNG)
+- [x] File size hợp lý: < 200KB/trang ở 150 DPI
+- [x] PageInfo dataclass đủ fields
+- [x] check_image_size() warn khi > 100KB
+- [x] extract_pdf_metadata() trả về đủ info
+- [x] Không memory leak (dùng context manager fitz.open)
 
 ⚠️ BÁO LỖI NẾU:
 - JPEG quality 85 vẫn > 200KB → cần giảm DPI hoặc resize

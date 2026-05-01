@@ -25,3 +25,4 @@ fuzzywuzzy
 pymupdf==1.24.5
 pillow==10.4.0
 google-generativeai==0.7.2
+reportlab==3.6.12
