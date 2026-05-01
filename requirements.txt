@@ -1,14 +1,14 @@
 fastapi==0.104.1
 uvicorn==0.24.0
 sqlalchemy==2.0.23
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.10
 python-dotenv==1.2.2
 pydantic==2.13.3
 websockets==12.0
-aiohttp==3.9.1
-httpx==0.28.1
+aiohttp==3.11.18
+httpx>=0.23.0,<0.28
 beautifulsoup4==4.12.2
-openai==1.3.7
+openai==1.109.1
 pydantic-settings==2.14.0
 pydantic[email]
 motor==3.7.1
@@ -20,7 +20,7 @@ black==23.11.0
 flake8==6.1.0
 rapidfuzz
 fuzzywuzzy
-pymupdf==1.24.5
+pymupdf==1.25.5
 pillow==12.2.0
 google-generativeai==0.8.6
 reportlab>=4.0.0

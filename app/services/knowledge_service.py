@@ -35,7 +35,7 @@ class KnowledgeService:
             print(f"✅ Loaded knowledge base with {len(self.knowledge_base)} categories")
 
         except Exception as e:
-            print(f"Error loading knowledge base: {e}")
+            print(f"Error loading knowledge base: {e}".encode('ascii', errors='replace').decode('ascii'))
             self.knowledge_base = {}
     
     def search_by_intent(self, intent: str) -> Dict[str, Any]:
