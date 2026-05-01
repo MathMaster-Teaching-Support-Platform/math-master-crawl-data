@@ -9,6 +9,7 @@ python tests/test_phase9.py
 ```
 
 Expected output:
+
 ```
 PHASE 9: E2E Tests — Standalone Test Suite
 ======================================================================
@@ -29,6 +30,7 @@ pytest tests/test_e2e.py -v --timeout=60 -s
 ```
 
 Expected output:
+
 ```
 tests/test_e2e.py::TestUploadAndProcess::test_upload_returns_book_id PASSED
 tests/test_e2e.py::TestUploadAndProcess::test_pipeline_completes PASSED
@@ -41,6 +43,7 @@ tests/test_e2e.py::TestUploadAndProcess::test_pipeline_completes PASSED
 ## Prerequisites
 
 ### MongoDB (required for test_e2e.py only)
+
 ```bash
 # Docker
 docker run -d -p 27017:27017 --name mongo-test mongo:7
@@ -50,7 +53,9 @@ docker-compose up -d mongodb
 ```
 
 ### Python Dependencies
+
 All dependencies are in `requirements.txt`. Ensure the venv is active:
+
 ```bash
 # Windows
 .\venv\Scripts\activate
@@ -79,11 +84,11 @@ tests/
 
 `conftest.py` automatically overrides these env vars for test isolation:
 
-| Variable | Test Value | Purpose |
-|---|---|---|
-| `MONGO_DB` | `sgk_toan_test` | Isolated test database |
-| `GEMINI_API_KEY` | `fake-test-key-for-testing` | Avoid real API calls |
-| `MATHPIX_ENABLED` | `false` | Disable Mathpix in tests |
+| Variable          | Test Value                  | Purpose                  |
+| ----------------- | --------------------------- | ------------------------ |
+| `MONGO_DB`        | `sgk_toan_test`             | Isolated test database   |
+| `GEMINI_API_KEY`  | `fake-test-key-for-testing` | Avoid real API calls     |
+| `MATHPIX_ENABLED` | `false`                     | Disable Mathpix in tests |
 
 > **Note:** The test DB (`sgk_toan_test`) is cleaned before and after each test. Production data is never touched.
 
@@ -98,6 +103,7 @@ pytest tests/test_e2e.py::TestUploadAndProcess -v
 ```
 
 What it tests:
+
 - POST `/books/upload` returns `200` with `book_id`
 - Background pipeline completes with `status=done`
 - At least 1 chapter is created
@@ -106,6 +112,7 @@ What it tests:
 - Pipeline completes in under 5 seconds
 
 Mock strategy:
+
 - `GeminiOCRService.analyze_page` → returns predefined `PageAnalysis` per page
 - `ImageExtractor.extract_and_store` → returns fake `ImageResult` (no disk I/O)
 
@@ -116,6 +123,7 @@ pytest tests/test_e2e.py::TestFileValidation -v
 ```
 
 What it tests:
+
 - `.txt` upload → `400`
 - PDF > 50 MB → `413`
 - Missing `title` → `422`
@@ -128,6 +136,7 @@ pytest tests/test_e2e.py::TestQueryStructure -v
 ```
 
 What it tests:
+
 - `GET /books/{id}/chapters` → list with `id`, `title`, `chapter_index`
 - `GET /lessons/{id}/content` → formula blocks with non-empty `latex`
 - `GET /lessons/{id}/content` → image blocks with non-empty `image_url`
@@ -141,6 +150,7 @@ pytest tests/test_e2e.py::TestExports -v
 ```
 
 What it tests:
+
 - `GET /books/{id}/export/json` → valid book tree with chapters and lessons
 - `GET /books/{id}/export/md` → Markdown with `##`, `###`, `$$...$$`
 - `GET /books/{id}/export/chunks` → RAG chunks with `chunk_id` and `metadata`
@@ -152,6 +162,7 @@ pytest tests/test_e2e.py::TestSearch -v
 ```
 
 What it tests:
+
 - `GET /search/?q=số hữu tỉ` → results with `content_id`, `type`, `lesson`, `chapter`
 - Missing `q` param → `422`
 
@@ -162,6 +173,7 @@ pytest tests/test_e2e.py::TestDelete -v
 ```
 
 What it tests:
+
 - `DELETE /books/{id}` → `200` with `deleted` confirmation
 - `GET /books/{id}` after deletion → `404`
 - `DELETE /books/nonexistent` → `404`
@@ -197,31 +209,40 @@ python tests/fixtures/create_test_pdf.py
 ## Troubleshooting
 
 ### MongoDB connection refused
+
 ```
 ConnectionRefusedError: [Errno 111] Connection refused
 ```
+
 Start MongoDB: `docker run -d -p 27017:27017 mongo:7`
 
 ### Event loop issues
+
 ```
 RuntimeError: no running event loop
 ```
+
 Make sure `pytest.ini` contains `asyncio_mode = auto`.
 
 ### GeminiOCRService raises ValueError
+
 ```
 ValueError: GEMINI_API_KEY is not set in configuration.
 ```
+
 `conftest.py` sets `GEMINI_API_KEY=fake-test-key-for-testing` **before** app imports. Make sure conftest.py is in the `tests/` directory.
 
 ### Test DB contamination
+
 If tests fail with unexpected data, the DB cleanup may have failed. Run:
+
 ```bash
 # Drop the test DB manually
 python -c "import asyncio; from motor.motor_asyncio import AsyncIOMotorClient; asyncio.run(AsyncIOMotorClient('mongodb://localhost:27017').drop_database('sgk_toan_test'))"
 ```
 
 ### Background tasks not completing
+
 If `status` never reaches `done`, check that FastAPI's BackgroundTask runs within the ASGI call. With `httpx.AsyncClient + ASGITransport`, background tasks execute synchronously.
 
 ---
