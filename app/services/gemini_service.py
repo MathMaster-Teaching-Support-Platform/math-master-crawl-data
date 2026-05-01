@@ -76,6 +76,7 @@ class ContentBlock:
     order: int = 0
     confidence: float = 1.0
     needs_mathpix: bool = False
+    source: str = "gemini"             # "gemini" | "mathpix"
 
 
 @dataclass

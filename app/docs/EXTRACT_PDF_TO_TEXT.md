@@ -989,14 +989,14 @@ async def run(self):
 
 SAU KHI XONG, hãy:
 ✅ CHECKLIST:
-- [ ] Pipeline chạy end-to-end không crash
-- [ ] Progress update đúng: 5% → 10% → (10-80%) per page → 82% → 88% → 100%
-- [ ] current_phase update đúng tên
-- [ ] Mathpix chỉ gọi khi needs_mathpix=True hoặc confidence < 0.6
-- [ ] Image extraction gán đúng URL vào block
-- [ ] gemini_calls và mathpix_calls được đếm đúng
-- [ ] Error → status="error", message rõ ràng
-- [ ] Temp files cleanup sau khi xong
+- [x] Pipeline chạy end-to-end không crash
+- [x] Progress update đúng: 5% → 10% → (10-80%) per page → 82% → 88% → 100%
+- [x] current_phase update đúng tên
+- [x] Mathpix chỉ gọi khi needs_mathpix=True hoặc confidence < 0.6
+- [x] Image extraction gán đúng URL vào block
+- [x] gemini_calls và mathpix_calls được đếm đúng
+- [x] Error → status="error", message rõ ràng
+- [x] Temp files cleanup sau khi xong
 
 ⚠️ BÁO LỖI NẾU:
 - Gemini rate limit 429 trong vòng lặp → cần đợi

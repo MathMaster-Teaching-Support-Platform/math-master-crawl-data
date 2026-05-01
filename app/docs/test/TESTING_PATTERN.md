@@ -100,7 +100,17 @@ pytest tests/ --cov=app.services --cov-report=html
 - **Covers:** Chapter detection, lesson hierarchy, exercise type parsing
 - **Tests:** *(to be determined)*
 
-### Phases 6-10
+### Phase 6 ✅ — MongoDB Models & Repositories
+- **File:** `tests/test_phase6.py` & `PHASE6_TESTING.md`
+- **Covers:** Pydantic schemas (BookCreate/BookDB, Chapter, Lesson, ContentBlock), async repositories (CRUD), ObjectId conversion
+- **Tests:** schema imports, Pydantic v2 validation, repository mocking
+
+### Phase 7 ✅ — Processing Pipeline
+- **File:** `tests/test_phase7.py` & `PHASE7_TESTING.md`
+- **Covers:** ProcessingPipeline end-to-end (PDF → MongoDB), Mathpix fallback logic, image extraction, progress updates, error handling
+- **Tests:** 13 tests (import, instantiation, mathpix_fallback x3, extract_images x2, save_to_db, progress_sequence, full_run, error_handling, run_pipeline, source_field)
+
+### Phases 8-10
 - Follow the same pattern as above
 - Each phase has its own test_phaseX.py and PHASEX_TESTING.md
 
@@ -261,12 +271,14 @@ pytest tests/ --cov=app.services --cov-report=term-missing
 | Phase 1 | ✅ | `python tests/test_phase1.py` | ✅ | ✅ PHASE1_TESTING.md |
 | Phase 2 | ✅ | `python tests/test_phase2.py` | ✅ | ✅ PHASE2_TESTING.md |
 | Phase 3 | ✅ | `python tests/test_phase3.py` | ✅ | ✅ PHASE3_TESTING.md |
-| Phase 4 | 🔲 | TBD | TBD | TBD |
-| Phase 5 | 🔲 | TBD | TBD | TBD |
+| Phase 4 | ✅ | `python tests/test_phase4.py` | ✅ | ✅ PHASE4_TESTING.md |
+| Phase 5 | ✅ | `python tests/test_phase5.py` | ✅ | ✅ PHASE5_TESTING.md |
+| Phase 6 | ✅ | `python tests/test_phase6.py` | ✅ | ✅ PHASE6_TESTING.md |
+| Phase 7 | ✅ | `python tests/test_phase7.py` | ✅ | ✅ PHASE7_TESTING.md |
 | ... | ... | ... | ... | ... |
 
 ---
 
 **Last Updated:** May 1, 2026  
 **Total Phases:** 10  
-**Phases Implemented:** 3
+**Phases Implemented:** 7

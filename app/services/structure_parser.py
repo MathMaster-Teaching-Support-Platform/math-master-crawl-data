@@ -354,5 +354,5 @@ class StructureParser:
             exercise_num=exercise_num,
             order=order,
             confidence=block.confidence,
-            source="gemini",
+            source=getattr(block, "source", "gemini"),
         )
