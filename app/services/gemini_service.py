@@ -1,12 +1,12 @@
 # Gemini Flash Vision OCR service — Phase 2
 import asyncio
-import base64
 import json
 import logging
 import time
 from dataclasses import dataclass, field
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from app.core.config import settings
 
@@ -134,14 +134,11 @@ class GeminiOCRService:
         if not settings.gemini_api_key:
             raise ValueError("GEMINI_API_KEY is not set in configuration.")
 
-        genai.configure(api_key=settings.gemini_api_key)
-        self._model = genai.GenerativeModel(
-            model_name=settings.gemini_model,
+        self._client = genai.Client(api_key=settings.gemini_api_key)
+        self._generation_config = types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
-            generation_config=genai.GenerationConfig(
-                temperature=0.1,
-                response_mime_type="application/json",
-            ),
+            temperature=0.1,
+            response_mime_type="application/json",
         )
         self._rate_limiter = _RateLimiter(min_interval_s=6.0)
         logger.info("GeminiOCRService ready (model=%s)", settings.gemini_model)
@@ -181,9 +178,10 @@ class GeminiOCRService:
 
         for attempt, delay in enumerate(delays, start=1):
             try:
-                response = await asyncio.to_thread(
-                    self._model.generate_content,
-                    [image_part, prompt],
+                response = await self._client.aio.models.generate_content(
+                    model=settings.gemini_model,
+                    contents=[image_part, prompt],
+                    config=self._generation_config,
                 )
                 return response.text
             except Exception as exc:
@@ -199,11 +197,11 @@ class GeminiOCRService:
 
         return ""  # unreachable
 
-    def _encode_image(self, image_path: str) -> dict:
-        """Read JPEG and return a Gemini-compatible image part dict."""
+    def _encode_image(self, image_path: str) -> types.Part:
+        """Read JPEG and return a Gemini-compatible image Part."""
         with open(image_path, "rb") as fh:
-            data = base64.b64encode(fh.read()).decode("utf-8")
-        return {"mime_type": "image/jpeg", "data": data}
+            data = fh.read()
+        return types.Part.from_bytes(data=data, mime_type="image/jpeg")
 
     def _parse_blocks(self, raw: str, page_num: int) -> list[ContentBlock]:
         """Parse JSON response into ContentBlock list, with one retry on failure."""
