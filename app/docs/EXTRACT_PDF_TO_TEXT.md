@@ -118,7 +118,7 @@ YÊU CẦU:
    MATHPIX_APP_KEY=your_app_key
    MATHPIX_ENABLED=false         # bật khi có key, tắt để test local
    MAX_FILE_SIZE_MB=50
-   GEMINI_MODEL=gemini-2.0-flash
+   GEMINI_MODEL=gemini-2.5-flash
 
 3. docker-compose.yml: chạy MongoDB + app
 
@@ -126,7 +126,7 @@ YÊU CẦU:
    # Các field đã có: app_name, debug, openai_api_key, mongo_url, mongo_db, ...
    storage_path: str = os.getenv("STORAGE_PATH", "./storage")
    gemini_api_key: Optional[str] = os.getenv("GEMINI_API_KEY")
-   gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+   gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
    mathpix_app_id: Optional[str] = os.getenv("MATHPIX_APP_ID")
    mathpix_app_key: Optional[str] = os.getenv("MATHPIX_APP_KEY")
    mathpix_enabled: bool = os.getenv("MATHPIX_ENABLED", "false").lower() == "true"
@@ -374,7 +374,7 @@ Trả về JSON:
 LƯU Ý:
 - Dùng google.generativeai SDK: import google.generativeai as genai
 - Import config: from app.core.config import settings
-- Model: settings.gemini_model (default: "gemini-2.0-flash")
+- Model: settings.gemini_model (default: "gemini-2.5-flash")
 - API key: settings.gemini_api_key
 - Temperature: 0.1 (cần output ổn định, không sáng tạo)
 - Không dùng stream (cần full response để parse JSON)

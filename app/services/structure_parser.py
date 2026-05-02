@@ -50,6 +50,17 @@ _ROMAN_TO_INT: dict[str, int] = {
 }
 
 
+def _to_str(value: object) -> str:
+    """Safely convert any block field value to str (guards against dict from Gemini)."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return str(value.get("text") or value.get("content") or value.get("latex") or "")
+    return str(value)
+
+
 def _roman_to_int(s: str) -> int:
     return _ROMAN_TO_INT.get(s.strip(), 0)
 
@@ -144,7 +155,6 @@ class StructureParser:
         for page in pages:
             for block in sorted(page.blocks, key=lambda b: b.order):
                 global_order += 1
-                text = (block.content or "").strip()
 
                 # ---- 1. Chapter detection --------------------------------
                 chapter_info = self._detect_chapter(block)
@@ -218,7 +228,7 @@ class StructureParser:
         """
         if block.type not in ("chapter_title", "text"):
             return None
-        text = (block.content or "").strip()
+        text = _to_str(block.content).strip()
         if not text:
             return None
         return self._parse_chapter_text(text)
@@ -254,7 +264,7 @@ class StructureParser:
         """
         if block.type not in ("lesson_title", "text"):
             return None
-        text = (block.content or "").strip()
+        text = _to_str(block.content).strip()
         if not text:
             return None
 
@@ -339,17 +349,17 @@ class StructureParser:
         exercise_type = ""
         exercise_num = 0
         if block_type == "exercise":
-            ex_info = self._detect_exercise((block.content or "").strip())
+            ex_info = self._detect_exercise(_to_str(block.content).strip())
             if ex_info:
                 exercise_type, exercise_num = ex_info
 
         return FinalContentBlock(
             type=block_type,
-            content=block.content or "",
-            latex=block.latex or "",
+            content=_to_str(block.content),
+            latex=_to_str(block.latex),
+            caption=_to_str(block.caption),
             image_url=image_url,
             thumbnail_url=thumbnail_url,
-            caption=block.caption or "",
             exercise_type=exercise_type,
             exercise_num=exercise_num,
             order=order,

@@ -39,5 +39,20 @@ class LessonRepository:
         result = await self.collection.delete_one({"_id": ObjectId(lesson_id)})
         return result.deleted_count == 1
 
+    async def delete_by_chapter_ids(self, chapter_ids: list[str]) -> int:
+        if not chapter_ids:
+            return 0
+        result = await self.collection.delete_many({"chapter_id": {"$in": chapter_ids}})
+        return result.deleted_count
+
+    async def list_ids_by_chapter_ids(self, chapter_ids: list[str]) -> list[str]:
+        if not chapter_ids:
+            return []
+        cursor = self.collection.find({"chapter_id": {"$in": chapter_ids}}, {"_id": 1})
+        ids = []
+        async for doc in cursor:
+            ids.append(str(doc["_id"]))
+        return ids
+
 
 lesson_repository = LessonRepository()

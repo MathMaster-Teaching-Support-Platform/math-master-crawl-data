@@ -11,6 +11,7 @@ python tests/test_phase2.py
 ```
 
 This script will:
+
 - Test GeminiOCRService initialization
 - Test image encoding
 - Test JSON parsing with mock Gemini responses
@@ -19,6 +20,7 @@ This script will:
 - **No API calls made** (uses mocks)
 
 **Expected output:**
+
 ```
 ======================================================================
 PHASE 2: Gemini Flash Vision OCR — Test Suite
@@ -72,16 +74,19 @@ PHASE 2: Gemini Flash Vision OCR — Test Suite
 ## 2️⃣ Pytest Test Suite (Comprehensive)
 
 ### Prerequisites
+
 ```bash
 pip install pytest pytest-asyncio google-generativeai
 ```
 
 ### Run all Phase 2 tests
+
 ```bash
 pytest tests/test_gemini_service.py -v
 ```
 
 ### Run specific test class
+
 ```bash
 # Test just the service singleton
 pytest tests/test_gemini_service.py::TestGeminiOCRServiceSingleton -v
@@ -97,17 +102,20 @@ pytest tests/test_gemini_service.py::TestAnalyzePage -v
 ```
 
 ### Run with detailed output
+
 ```bash
 pytest tests/test_gemini_service.py -vv -s
 ```
 
 ### Run with timeout protection
+
 ```bash
 pip install pytest-timeout
 pytest tests/test_gemini_service.py -v --timeout=30
 ```
 
 ### Run with coverage report
+
 ```bash
 pip install pytest-cov
 pytest tests/test_gemini_service.py --cov=app.services.gemini_service --cov-report=html
@@ -125,9 +133,10 @@ pytest tests/test_gemini_service.py --cov=app.services.gemini_service --cov-repo
    - Copy the key
 
 2. **Add to `.env`:**
+
    ```
    GEMINI_API_KEY=your_api_key_here
-   GEMINI_MODEL=gemini-2.0-flash
+   GEMINI_MODEL=gemini-2.5-flash
    ```
 
 3. **Create test script** `test_phase2_real.py`:
@@ -139,28 +148,28 @@ from app.services.pdf_parser import render_pages
 
 async def test_with_real_api():
     """Test with actual Gemini API (costs credits)."""
-    
+
     # Generate test pages from a small PDF
     print("1️⃣  Rendering test PDF pages...")
     pages = render_pages("tests/fixtures/test_book.pdf", "data/books/test")
     print(f"✅ Rendered {len(pages)} pages")
-    
+
     # Initialize service
     print("\n2️⃣  Initializing GeminiOCRService...")
     service = GeminiOCRService()
     print("✅ Service ready")
-    
+
     # Analyze first page
     print(f"\n3️⃣  Analyzing page 1...")
     result = await service.analyze_page(pages[0].image_path, page_num=1)
-    
+
     print(f"✅ Analysis complete ({result.processing_time_ms}ms)")
     print(f"   Found {len(result.blocks)} blocks:")
-    
+
     for block in result.blocks:
         print(f"   - [{block.type}] {block.content[:30] if block.content else block.latex[:30]}...")
         print(f"     confidence: {block.confidence:.2f}, needs_mathpix: {block.needs_mathpix}")
-    
+
     return result
 
 if __name__ == "__main__":
@@ -169,6 +178,7 @@ if __name__ == "__main__":
 ```
 
 Run with:
+
 ```bash
 python test_phase2_real.py
 ```
@@ -239,8 +249,8 @@ gs._instance = None
 
 with patch("app.services.gemini_service.settings") as mock_settings:
     mock_settings.gemini_api_key = "test-key"
-    mock_settings.gemini_model = "gemini-2.0-flash"
-    
+    mock_settings.gemini_model = "gemini-2.5-flash"
+
     service = GeminiOCRService()
     blocks = service._parse_blocks(mock_response, page_num=1)
     print(f"✅ Parsed {len(blocks)} block(s) from JSON")
@@ -255,6 +265,7 @@ print("\n✅ All interactive tests passed!")
 ## ✅ Test Coverage Summary
 
 ### Dataclass Tests
+
 - ✅ ContentBlock creation with all fields
 - ✅ ContentBlock with formula (latex, needs_mathpix)
 - ✅ ContentBlock with image (image_bbox, caption)
@@ -262,33 +273,39 @@ print("\n✅ All interactive tests passed!")
 - ✅ PageAnalysis with empty blocks
 
 ### Service Tests
+
 - ✅ Singleton initialization
 - ✅ Missing API key error handling
 - ✅ Service initialization with config
 
 ### Rate Limiter Tests
+
 - ✅ Minimum interval enforcement (6 seconds)
 - ✅ Concurrent call serialization
 - ✅ Lock mechanism correctness
 
 ### Image Encoding Tests
+
 - ✅ JPEG to base64 encoding
 - ✅ Mime type detection
 - ✅ Nonexistent file error handling
 
 ### JSON Parsing Tests
+
 - ✅ Valid JSON parsing
 - ✅ Null value handling (None → "")
 - ✅ Invalid JSON error recovery
 - ✅ Noisy response extraction
 
 ### Async API Tests
+
 - ✅ analyze_page() success case
 - ✅ Rate limiter enforcement in async
 - ✅ Retry on error (exponential backoff)
 - ✅ Retry exhaustion (3 max retries)
 
 ### Integration Tests
+
 - ✅ Multi-page workflow
 - ✅ Block attribute validation
 - ✅ Type validation (9 block types)
@@ -344,6 +361,7 @@ All tests use this standard mock response:
 ### Block Types
 
 Supported block types for testing:
+
 - `chapter_title` — chapter heading
 - `lesson_title` — lesson/bài heading
 - `text` — regular text content
@@ -359,33 +377,40 @@ Supported block types for testing:
 ## ⚠️ Troubleshooting
 
 ### ⚠️ "No module named 'google.generativeai'"
+
 ```bash
 pip install google-generativeai
 ```
 
 ### ⚠️ "RuntimeError: Event loop is closed"
+
 - Caused by async test issues
 - Solution: Run pytest with `--asyncio-mode=auto`
+
 ```bash
 pytest tests/test_gemini_service.py --asyncio-mode=auto -v
 ```
 
 ### ⚠️ "GEMINI_API_KEY is not set"
+
 - Expected in mock tests
 - Tests run without actual API calls
 - Set `.env` only if testing with real API
 
 ### ⚠️ "Test hangs or times out"
+
 - Rate limiter may be waiting (6+ seconds between calls)
 - Run with: `pytest tests/test_gemini_service.py -v --timeout=60`
 - Or disable rate limiter in custom tests temporarily
 
 ### ⚠️ "JSON parse failed for page"
+
 - Tests include fallback JSON extraction
 - Verify mock response is valid JSON
 - Check for escaped backslashes in LaTeX strings
 
 ### ⚠️ "confidence value not in range [0.0, 1.0]"
+
 - Ensure mock responses have `"confidence": <float between 0 and 1>`
 - Tests validate this range
 
@@ -394,12 +419,14 @@ pytest tests/test_gemini_service.py --asyncio-mode=auto -v
 ## 📊 Performance Expectations
 
 ### Without API Calls (Mock)
+
 - Test setup: ~100 ms
 - JSON parsing: ~5 ms per block
 - Image encoding: ~10 ms per image
 - Total suite: ~10 seconds
 
 ### With Real Gemini API
+
 - Per-page analysis: 2-5 seconds (includes network latency)
 - Rate limiting: 6 seconds minimum between requests (10 RPM free tier)
 - Full 10-page document: ~60-90 seconds
@@ -408,13 +435,13 @@ pytest tests/test_gemini_service.py --asyncio-mode=auto -v
 
 ## 🔗 Dependencies
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `pytest` | ≥7.4.3 | Test framework |
-| `pytest-asyncio` | ≥0.21.1 | Async test support |
-| `google-generativeai` | ≥0.7.2 | Gemini API SDK |
-| `Pillow` | ≥10.4.0 | Image handling |
-| `PyMuPDF` | ≥1.24.5 | PDF rendering (Phase 1) |
+| Package               | Version | Purpose                 |
+| --------------------- | ------- | ----------------------- |
+| `pytest`              | ≥7.4.3  | Test framework          |
+| `pytest-asyncio`      | ≥0.21.1 | Async test support      |
+| `google-generativeai` | ≥0.7.2  | Gemini API SDK          |
+| `Pillow`              | ≥10.4.0 | Image handling          |
+| `PyMuPDF`             | ≥1.24.5 | PDF rendering (Phase 1) |
 
 ---
 
@@ -429,6 +456,7 @@ Once Phase 2 tests pass:
 5. ➡️ Then Phase 5: Structure Parser
 
 ### Run all tests together:
+
 ```bash
 pytest tests/test_pdf_parser.py tests/test_gemini_service.py -v
 ```

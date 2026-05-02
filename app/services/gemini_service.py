@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -129,9 +130,11 @@ class GeminiOCRService:
         # Guard against re-initialisation on repeated __new__ returns
         if getattr(self, "_initialized", False):
             return
-        self._initialized = True
 
         if not settings.gemini_api_key:
+            # Reset singleton so next call can retry cleanly
+            global _instance
+            _instance = None
             raise ValueError("GEMINI_API_KEY is not set in configuration.")
 
         self._client = genai.Client(api_key=settings.gemini_api_key)
@@ -141,6 +144,8 @@ class GeminiOCRService:
             response_mime_type="application/json",
         )
         self._rate_limiter = _RateLimiter(min_interval_s=6.0)
+        # Mark as fully initialised only after all setup succeeds
+        self._initialized = True
         logger.info("GeminiOCRService ready (model=%s)", settings.gemini_model)
 
     # ------------------------------------------------------------------
@@ -172,11 +177,11 @@ class GeminiOCRService:
     async def _call_with_retry(
         self, image_path: str, prompt: str, page_num: int
     ) -> str:
-        """Call Gemini API with exponential-backoff retry (max 3 attempts)."""
+        """Call Gemini API with retry, honouring retryDelay from 429 responses."""
         image_part = self._encode_image(image_path)
-        delays = [2, 4, 8]
+        max_attempts = 3
 
-        for attempt, delay in enumerate(delays, start=1):
+        for attempt in range(1, max_attempts + 1):
             try:
                 response = await self._client.aio.models.generate_content(
                     model=settings.gemini_model,
@@ -185,15 +190,29 @@ class GeminiOCRService:
                 )
                 return response.text
             except Exception as exc:
+                error_msg = str(exc)
                 logger.warning(
-                    "Gemini API error (attempt %d/3) for page %d: %s",
+                    "Gemini API error (attempt %d/%d) for page %d: %s",
                     attempt,
+                    max_attempts,
                     page_num,
-                    exc,
+                    error_msg,
                 )
-                if attempt == len(delays):
+                if attempt == max_attempts:
                     raise
-                await asyncio.sleep(delay)
+
+                # Parse retryDelay from API error message if present
+                match = re.search(r"retryDelay.*?(\d+)s", error_msg)
+                wait_sec = int(match.group(1)) + 5 if match else (2 ** attempt) * 10
+
+                logger.warning(
+                    "Waiting %ds before retry (page %d, attempt %d/%d)...",
+                    wait_sec,
+                    page_num,
+                    attempt,
+                    max_attempts,
+                )
+                await asyncio.sleep(wait_sec)
 
         return ""  # unreachable
 
@@ -223,6 +242,17 @@ class GeminiOCRService:
                 logger.error("Fallback parse also failed for page %d.", page_num)
                 return []
 
+    @staticmethod
+    def _normalize_str(value: object) -> str:
+        """Ensure a value from Gemini JSON is always a plain string."""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            return str(value.get("text") or value.get("content") or value.get("latex") or "")
+        return str(value)
+
     def _do_parse(self, raw: str, page_num: int) -> list[ContentBlock]:
         data = json.loads(raw)
         raw_blocks = data.get("blocks", [])
@@ -237,10 +267,10 @@ class GeminiOCRService:
             blocks.append(
                 ContentBlock(
                     type=str(rb.get("type", "text")),
-                    content=rb.get("content") or "",
-                    latex=rb.get("latex") or "",
+                    content=self._normalize_str(rb.get("content")),
+                    latex=self._normalize_str(rb.get("latex")),
                     image_bbox=bbox,
-                    caption=rb.get("caption") or "",
+                    caption=self._normalize_str(rb.get("caption")),
                     order=int(rb.get("order", 0)),
                     confidence=float(rb.get("confidence", 1.0)),
                     needs_mathpix=bool(rb.get("needs_mathpix", False)),

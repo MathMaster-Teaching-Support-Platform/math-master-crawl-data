@@ -57,6 +57,7 @@ async def health_check():
     return {
         "status": "ok",
         "gemini": bool(settings.gemini_api_key),
+        "gemini_model": settings.gemini_model,
         "mathpix": settings.mathpix_enabled,
     }
 
