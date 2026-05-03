@@ -16,7 +16,7 @@ from app.repositories.content_repository import content_repository
 from app.schemas.chapter import ChapterCreate
 from app.schemas.lesson import LessonCreate
 from app.schemas.content import ContentBlockCreate
-from app.services.gemini_service import GeminiOCRService, PageAnalysis, ContentBlock
+from app.services.gemini_service import GeminiOCRService, PageAnalysis, ContentBlock, TocAnalysis
 from app.services.image_service import ImageExtractor, ImageResult
 from app.services.mathpix_service import MathpixService
 from app.services.pdf_parser import render_pages, PageInfo
@@ -41,6 +41,7 @@ class ProcessingPipeline:
         self.gemini_call_count = 0
         self.mathpix_call_count = 0
         self._pages_dir: Optional[str] = None
+        self._toc: Optional[TocAnalysis] = None
 
     async def run(self) -> None:
         try:
@@ -86,6 +87,17 @@ class ProcessingPipeline:
                     )
                     self.gemini_call_count += 1
                     blocks_count = len(analysis.blocks)
+
+                    # Detect TOC page and extract structured entries
+                    if self._toc is None and self._is_toc_analysis(analysis):
+                        logger.info("[%s] TOC page detected at page %d — extracting...", self.book_id, page_info.page_num)
+                        toc_result = await self.gemini.analyze_toc_page(page_info.image_path, page_info.page_num)
+                        if toc_result:
+                            toc_result.compute_page_ends(total)
+                            self._toc = toc_result
+                            self._save_toc(toc_result)
+                            logger.info("[%s] TOC extracted: %d entries.", self.book_id, len(toc_result.entries))
+
                     analysis.raw_response = ""  # free memory after processing
 
                     analysis = await self._apply_mathpix_fallback(
@@ -123,13 +135,19 @@ class ProcessingPipeline:
                 title=book_doc.title if book_doc else "",
                 publisher=book_doc.publisher if book_doc else "",
                 image_results=all_image_results,
+                toc=self._toc,
             )
+            if self._toc:
+                logger.info("[%s] Used TOC-based parsing (%d entries).", self.book_id, len(self._toc.entries))
+            else:
+                logger.info("[%s] Used inline parsing (no TOC found).", self.book_id)
             logger.info(
                 "[%s] STEP 3/4 done: %d chapters, %d lessons.",
                 self.book_id,
                 len(book_structure.chapters),
                 sum(len(c.lessons) for c in book_structure.chapters),
             )
+            await self._log_structure(book_structure)
 
             # STEP 4: Save to MongoDB
             logger.info("[%s] STEP 4/4: Saving to MongoDB...", self.book_id)
@@ -337,6 +355,94 @@ class ProcessingPipeline:
                 ]
                 if content_docs:
                     await content_repository.bulk_create(content_docs)
+
+    @staticmethod
+    def _is_toc_analysis(analysis: PageAnalysis) -> bool:
+        """Return True if the page analysis looks like a TOC page."""
+        blocks = analysis.blocks
+        if not blocks:
+            return False
+        # Gemini signals TOC with type="toc"
+        if len(blocks) == 1 and getattr(blocks[0], "type", "") == "toc":
+            return True
+        # Fallback: first block content contains "MỤC LỤC"
+        first_content = getattr(blocks[0], "content", "").upper()
+        return "MỤC LỤC" in first_content
+
+    def _save_toc(self, toc: TocAnalysis) -> None:
+        """Persist extracted TOC to data/books/<id>/toc.json for inspection."""
+        try:
+            toc_path = Path("data") / "books" / self.book_id / "toc.json"
+            toc_path.parent.mkdir(parents=True, exist_ok=True)
+            data = {
+                "toc_page_num": toc.toc_page_num,
+                "entries": [
+                    {
+                        "type": e.type,
+                        "chapter_index": e.chapter_index,
+                        "chapter_roman": e.chapter_roman,
+                        "lesson_index": e.lesson_index,
+                        "title": e.title,
+                        "page_start": e.page_start,
+                        "page_end": e.page_end,
+                    }
+                    for e in toc.entries
+                ],
+            }
+            toc_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            logger.info("[%s] TOC saved → %s", self.book_id, toc_path)
+        except Exception:
+            logger.warning("[%s] Failed to save toc.json", self.book_id, exc_info=True)
+
+    async def _log_structure(self, book_structure: BookStructure) -> None:
+        """Log JSON context for each chapter/lesson after structure parsing."""
+        try:
+            data = []
+            for chapter in book_structure.chapters:
+                chapter_data = {
+                    "chapter_index": chapter.index,
+                    "roman_index": chapter.roman_index,
+                    "title": chapter.title,
+                    "page_start": chapter.page_start,
+                    "lessons": [],
+                }
+                for lesson in chapter.lessons:
+                    lesson_data = {
+                        "lesson_index": lesson.index,
+                        "title": lesson.title,
+                        "page_start": lesson.page_start,
+                        "num_blocks": len(lesson.content_blocks),
+                        "content_blocks": [
+                            {
+                                "order": cb.order,
+                                "type": cb.type,
+                                "content": cb.content[:300] if cb.content else "",
+                                "latex": cb.latex[:150] if cb.latex else "",
+                                "source": cb.source,
+                                "confidence": round(cb.confidence, 3),
+                            }
+                            for cb in lesson.content_blocks
+                        ],
+                    }
+                    chapter_data["lessons"].append(lesson_data)
+                    logger.info(
+                        "[%s] Chương %s — Bài %s '%s' (trang %s): %d blocks\n%s",
+                        self.book_id,
+                        chapter.roman_index or chapter.index,
+                        lesson.index,
+                        lesson.title,
+                        lesson.page_start,
+                        len(lesson.content_blocks),
+                        json.dumps(lesson_data, ensure_ascii=False, indent=2),
+                    )
+                data.append(chapter_data)
+
+            debug_path = Path("data") / "books" / self.book_id / "structure_debug.json"
+            debug_path.parent.mkdir(parents=True, exist_ok=True)
+            debug_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            logger.info("[%s] Structure debug JSON saved → %s", self.book_id, debug_path)
+        except Exception:
+            logger.warning("[%s] Failed to log structure", self.book_id, exc_info=True)
 
     async def _update(self, phase: str, progress: int, message: str = "") -> None:
         await self.book_repo.update_status(

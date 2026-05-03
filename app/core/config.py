@@ -1,18 +1,29 @@
-import os
 from typing import Optional
 from pydantic_settings import BaseSettings
+
 
 class Settings(BaseSettings):
     app_name: str = "Chatbot Tư vấn Tuyển sinh"
     debug: bool = False
-    openai_api_key: Optional[str] = None
-    openai_model: str = "gpt-3.5-turbo"
-    chat_history_limit: int = 30
     secret_key: str = "your-secret-key"
     port: int = 8001
     api_prefix: str = "/api/v1"
+
+    # OpenAI
+    openai_api_key: Optional[str] = None
+    openai_model: str = "gpt-4o"
+    chat_history_limit: int = 30
+
+    # MongoDB
     mongo_url: str = "mongodb://localhost:27017"
-    mongo_db: str = "ai_chatbot"
+    mongo_db: str = "sgk_toan"
+
+    # Redis
+    redis_url: str = "redis://localhost:6379"
+    enable_rate_limit: bool = True
+
+    # Logging
+    log_level: str = "INFO"
 
     # SGK PDF Processing
     storage_path: str = "./storage"
@@ -26,5 +37,6 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         extra = "allow"
+
 
 settings = Settings()

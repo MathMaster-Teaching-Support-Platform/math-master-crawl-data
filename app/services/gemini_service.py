@@ -25,9 +25,14 @@ SYSTEM_PROMPT = (
 
 PAGE_ANALYSIS_PROMPT = r"""Phân tích trang SGK Toán này. Nhận diện TẤT CẢ các block nội dung theo thứ tự đọc (trên→dưới, trái→phải).
 
-Với mỗi block, xác định:
+QUAN TRỌNG — Trang MỤC LỤC / TABLE OF CONTENTS:
+- Nếu trang này là trang mục lục (có tiêu đề "MỤC LỤC" hoặc liệt kê chương/bài kèm số trang), trả về đúng 1 block:
+  {"type": "toc", "content": "MỤC LỤC", "latex": null, "image_bbox": null, "caption": null, "confidence": 1.0, "needs_mathpix": false, "order": 1}
+- KHÔNG phân tích chi tiết từng dòng trong trang mục lục.
+
+Với mỗi block (trang KHÔNG phải mục lục), xác định:
 - type: chapter_title | lesson_title | text | formula | exercise | image | table | definition | note
-- content: nội dung text (nếu có)
+- content: nội dung text thuần (KHÔNG kèm số trang ở cuối — ví dụ "Bài 1. Tính đơn điệu" chứ KHÔNG phải "Bài 1. Tính đơn điệu 5")
 - latex: công thức LaTeX chuẩn (nếu type=formula). Dùng đúng commands: \frac{}{}, \sqrt{}, \sum_{i=1}^{n}, \int_{a}^{b}, \alpha, \beta, \gamma, \Delta, \Sigma, \mathbb{R}, \vec{v}, \overline{AB}, \angle, \perp, \parallel, \in, \subset, \cup, \cap
 - image_bbox: [x1,y1,x2,y2] tọa độ tương đối 0-1 nếu type=image (null nếu không phải)
 - caption: caption của hình (null nếu không có)
@@ -36,8 +41,8 @@ Với mỗi block, xác định:
 
 Patterns nhận diện:
 - chapter_title: "CHƯƠNG I", "Chương 1.", "CHƯƠNG 2:", text to/đậm ở đầu chapter
-- lesson_title: "Bài 1.", "Bài 2:", "§1.", text to ở đầu bài học
-- exercise: bắt đầu bằng "Bài tập", "Luyện tập", "Ví dụ N", "Hoạt động N", "Khám phá"
+- lesson_title: "Bài 1.", "Bài 2:", "§1.", text to ở đầu bài học. "Bài tập cuối chương N" cũng là lesson_title
+- exercise: bắt đầu bằng "Luyện tập", "Ví dụ N", "Hoạt động N", "Khám phá", "Vận dụng"
 - definition: "Định nghĩa", "Tính chất", "Định lý", "Hệ quả" thường có viền/nền màu
 - note: "Chú ý", "Nhận xét", "Ghi nhớ"
 - formula: bất kỳ công thức toán nào, kể cả inline trong câu
@@ -63,6 +68,33 @@ FALLBACK_PROMPT = r"""Trang SGK Toán. Trả về JSON với trường "blocks" 
 Mỗi block: {"type":"text","content":"...","latex":null,"image_bbox":null,"caption":null,"confidence":0.8,"needs_mathpix":false,"order":N}
 CHỈ JSON, không giải thích."""
 
+TOC_ANALYSIS_PROMPT = r"""Đây là trang MỤC LỤC của sách giáo khoa Toán Việt Nam.
+Hãy trích xuất TẤT CẢ các mục trong mục lục theo thứ tự xuất hiện (trên→dưới, trái→phải).
+
+Với mỗi mục, xác định:
+- type: "chapter" hoặc "lesson" hoặc "section" (section = "Bài tập cuối chương", "Hoạt động thực hành trải nghiệm", ...)
+- chapter_index: số thứ tự chương (integer, 1-based). Nếu là mục thuộc chương nào thì ghi số đó.
+- chapter_roman: số La Mã của chương (ví dụ "I", "II", "III"). Rỗng nếu không có.
+- lesson_index: số thứ tự bài trong chương (integer, 1-based). 0 nếu là mục chương.
+- title: tiêu đề thuần (KHÔNG kèm số trang)
+- page_start: số trang bắt đầu (integer)
+
+QUAN TRỌNG:
+- Số trang thường nằm ở cuối dòng hoặc cạnh phải — đó là page_start.
+- Trang mục lục thường có 2 cột — đọc từng cột từ trên xuống, trái trước phải sau.
+- "Bài tập cuối chương N" là type="section", lesson_index = 99 (để sort cuối chương).
+- Chỉ đọc mục lục, KHÔNG thêm thông tin ngoài ảnh.
+
+Trả về JSON:
+{
+  "entries": [
+    {"type": "chapter", "chapter_index": 1, "chapter_roman": "I", "lesson_index": 0, "title": "Ứng dụng đạo hàm để khảo sát và vẽ đồ thị hàm số", "page_start": 5},
+    {"type": "lesson",  "chapter_index": 1, "chapter_roman": "I", "lesson_index": 1, "title": "Tính đơn điệu và cực trị của hàm số", "page_start": 5},
+    {"type": "lesson",  "chapter_index": 1, "chapter_roman": "I", "lesson_index": 2, "title": "Giá trị lớn nhất và giá trị nhỏ nhất của hàm số", "page_start": 15},
+    {"type": "section", "chapter_index": 1, "chapter_roman": "I", "lesson_index": 99, "title": "Bài tập cuối chương I", "page_start": 42}
+  ]
+}"""
+
 # ---------------------------------------------------------------------------
 # Dataclasses
 # ---------------------------------------------------------------------------
@@ -86,6 +118,53 @@ class PageAnalysis:
     blocks: list[ContentBlock] = field(default_factory=list)
     raw_response: str = ""
     processing_time_ms: int = 0
+
+
+@dataclass
+class TocEntry:
+    type: str           # "chapter" | "lesson" | "section"
+    chapter_index: int
+    chapter_roman: str
+    lesson_index: int   # 0 if chapter entry; 99 for end-of-chapter sections
+    title: str
+    page_start: int
+    page_end: int = 0   # filled in by TocAnalysis.compute_page_ends()
+
+
+@dataclass
+class TocAnalysis:
+    entries: list[TocEntry]
+    toc_page_num: int
+
+    def compute_page_ends(self, total_pages: int) -> None:
+        """Set page_end for each entry = page_start of the next entry."""
+        all_entries = [e for e in self.entries]
+        for i, entry in enumerate(all_entries):
+            if i + 1 < len(all_entries):
+                entry.page_end = all_entries[i + 1].page_start - 1
+            else:
+                entry.page_end = total_pages
+
+    def find_lesson(self, page_num: int) -> "TocEntry | None":
+        """Return the lesson/section entry whose page range covers page_num."""
+        candidates = [
+            e for e in self.entries
+            if e.type in ("lesson", "section") and e.page_start <= page_num
+        ]
+        if not candidates:
+            return None
+        # Pick the one with the highest page_start (most recent lesson start)
+        return max(candidates, key=lambda e: e.page_start)
+
+    def find_chapter(self, page_num: int) -> "TocEntry | None":
+        """Return the chapter entry whose page range covers page_num."""
+        candidates = [
+            e for e in self.entries
+            if e.type == "chapter" and e.page_start <= page_num
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda e: e.page_start)
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +248,36 @@ class GeminiOCRService:
             raw_response=raw,
             processing_time_ms=elapsed_ms,
         )
+
+    async def analyze_toc_page(self, image_path: str, page_num: int) -> "TocAnalysis | None":
+        """Analyse a TOC page and return structured TocAnalysis with page ranges."""
+        await self._rate_limiter.acquire()
+        try:
+            raw = await self._call_with_retry(image_path, TOC_ANALYSIS_PROMPT, page_num)
+            data = json.loads(self._extract_json(raw))
+            raw_entries = data.get("entries", [])
+            entries: list[TocEntry] = []
+            for re_ in raw_entries:
+                try:
+                    entries.append(TocEntry(
+                        type=str(re_.get("type", "lesson")),
+                        chapter_index=int(re_.get("chapter_index", 0)),
+                        chapter_roman=str(re_.get("chapter_roman", "")),
+                        lesson_index=int(re_.get("lesson_index", 0)),
+                        title=str(re_.get("title", "")),
+                        page_start=int(re_.get("page_start", 0)),
+                    ))
+                except (ValueError, TypeError) as exc:
+                    logger.warning("[TOC] Skipping entry %s: %s", re_, exc)
+            if not entries:
+                logger.warning("[TOC] No entries extracted from page %d.", page_num)
+                return None
+            toc = TocAnalysis(entries=entries, toc_page_num=page_num)
+            logger.info("[TOC] Extracted %d entries from page %d.", len(entries), page_num)
+            return toc
+        except Exception as exc:
+            logger.warning("[TOC] Failed to parse TOC page %d: %s", page_num, exc)
+            return None
 
     # ------------------------------------------------------------------
     # Internal helpers

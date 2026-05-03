@@ -5,6 +5,7 @@ from app.core.config import settings
 from app.controllers import chat_controller, ranking_controller
 from app.controllers.university_controller import router as university_router
 from app.controllers import book_controller, chapter_controller, lesson_controller, search_controller
+from app.controllers.demo_controller import router as demo_router
 from app.core.mongo import mongo_db
 import os
 
@@ -37,6 +38,7 @@ app.include_router(book_controller.router, prefix=API_PREFIX)
 app.include_router(chapter_controller.router, prefix=API_PREFIX)
 app.include_router(lesson_controller.router, prefix=API_PREFIX)
 app.include_router(search_controller.router, prefix=API_PREFIX)
+app.include_router(demo_router, prefix=API_PREFIX)
 
 # Health check endpoint
 @app.get("/")
