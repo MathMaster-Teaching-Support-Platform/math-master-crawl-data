@@ -110,5 +110,26 @@ class BookRepository:
         result = await self.collection.delete_one({"_id": ObjectId(book_id)})
         return result.deleted_count == 1
 
+    async def restore_with_id(self, book_id: str, book: BookCreate, file_path: str) -> str:
+        """Re-insert a book record with a specific _id (e.g. after accidental delete)."""
+        now = datetime.now(timezone.utc)
+        doc = {
+            "_id": ObjectId(book_id),
+            **book.model_dump(),
+            "status": "pending",
+            "progress": 0,
+            "current_phase": "",
+            "total_pages": 0,
+            "processed_pages": 0,
+            "file_path": file_path,
+            "error_message": "",
+            "created_at": now,
+            "updated_at": now,
+            "gemini_calls": 0,
+            "mathpix_calls": 0,
+        }
+        await self.collection.insert_one(doc)
+        return book_id
+
 
 book_repository = BookRepository()

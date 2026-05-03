@@ -13,7 +13,7 @@ from app.repositories.chapter_repository import chapter_repository
 from app.repositories.content_repository import content_repository
 from app.repositories.lesson_repository import lesson_repository
 from app.schemas.book import BookCreate, BookDB
-from app.services.processing_pipeline import run_pipeline
+from app.services.processing_pipeline import run_pipeline, reprocess_from_cache
 from app.utils.response import success_response
 
 router = APIRouter(prefix="/books", tags=["books"])
@@ -373,3 +373,36 @@ async def delete_book(book_id: str):
         shutil.rmtree(book_storage_dir, ignore_errors=True)
 
     return success_response(data={"deleted": book_id}, message="Book deleted.")
+
+
+@router.post("/{book_id}/reprocess")
+async def reprocess_book(
+    book_id: str,
+    background_tasks: BackgroundTasks,
+    title: str = "",
+    grade: int = 0,
+    publisher: str = "",
+    academic_year: str = "",
+    file_path: str = "",
+):
+    """Re-run STEP 3+4 (parse + save) using cached page_analyses.
+    Use this when the pipeline failed after Gemini OCR was already completed.
+    Pass title/grade/publisher/academic_year/file_path if the book record was deleted.
+    """
+    cache_path = os.path.join("data", "books", book_id, "page_analyses.json")
+    if not os.path.exists(cache_path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"No cache found for book_id={book_id}. You must upload the PDF first.",
+        )
+    # If book exists, reset its status so polling works
+    book = await book_repository.get_by_id(book_id)
+    if book is not None:
+        await book_repository.update_status(book_id, "processing", 80, "reprocessing")
+
+    meta_override = {"title": title, "grade": grade, "publisher": publisher, "academic_year": academic_year, "file_path": file_path}
+    background_tasks.add_task(reprocess_from_cache, book_id, meta_override)
+    return success_response(
+        data={"book_id": book_id, "status": "reprocessing"},
+        message="Reprocessing started from cache (STEP 3+4 only).",
+    )

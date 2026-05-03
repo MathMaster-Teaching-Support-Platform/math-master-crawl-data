@@ -67,7 +67,7 @@ def run_service_initialization():
 
         with patch("app.services.gemini_service.settings") as mock_settings:
             mock_settings.gemini_api_key = "test-api-key"
-            mock_settings.gemini_model = "gemini-2.0-flash"
+            mock_settings.gemini_model = "gemini-2.5-flash"
 
             with patch("app.services.gemini_service.genai") as mock_genai:
                 # Mock the GenerativeModel and GenerationConfig

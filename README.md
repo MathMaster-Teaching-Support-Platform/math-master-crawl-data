@@ -165,7 +165,7 @@ SECRET_KEY=your-secret-key
 | `MONGO_DB`           | `sgk_toan`                  | Tên database                               |
 | `STORAGE_PATH`       | `./storage`                 | Thư mục lưu ảnh trích xuất                 |
 | `GEMINI_API_KEY`     | _(optional)_                | Google Gemini API key (OCR chính)          |
-| `GEMINI_MODEL`       | `gemini-2.0-flash`          | Tên model Gemini                           |
+| `GEMINI_MODEL`       | `gemini-2.5-flash`          | Tên model Gemini                           |
 | `MATHPIX_APP_ID`     | _(optional)_                | Mathpix App ID (formula fallback)          |
 | `MATHPIX_APP_KEY`    | _(optional)_                | Mathpix App Key                            |
 | `MATHPIX_ENABLED`    | `false`                     | Bật Mathpix fallback                       |

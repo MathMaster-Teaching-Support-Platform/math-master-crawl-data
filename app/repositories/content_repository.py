@@ -58,6 +58,12 @@ class ContentRepository:
         result = await self.collection.delete_many({"lesson_id": lesson_id})
         return result.deleted_count
 
+    async def delete_by_lesson_ids(self, lesson_ids: list[str]) -> int:
+        if not lesson_ids:
+            return 0
+        result = await self.collection.delete_many({"lesson_id": {"$in": lesson_ids}})
+        return result.deleted_count
+
     async def delete(self, content_id: str) -> bool:
         result = await self.collection.delete_one({"_id": ObjectId(content_id)})
         return result.deleted_count == 1

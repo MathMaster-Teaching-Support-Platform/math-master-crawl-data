@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
-from app.services.gemini_service import ContentBlock, PageAnalysis
+from app.services.gemini_service import ContentBlock, PageAnalysis, TocAnalysis, TocEntry
 from app.services.image_service import ImageResult
 
 logger = logging.getLogger(__name__)
@@ -48,6 +48,17 @@ _ROMAN_TO_INT: dict[str, int] = {
     "vi": 6, "vii": 7, "viii": 8, "ix": 9, "x": 10,
     "xi": 11, "xii": 12,
 }
+
+
+def _to_str(value: object) -> str:
+    """Safely convert any block field value to str (guards against dict from Gemini)."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return str(value.get("text") or value.get("content") or value.get("latex") or "")
+    return str(value)
 
 
 def _roman_to_int(s: str) -> int:
@@ -129,22 +140,142 @@ class StructureParser:
         grade: int,
         title: str,
         publisher: str = "",
-        # Optional map: (page_num, block_order) → ImageResult
         image_results: Optional[dict[tuple[int, int], ImageResult]] = None,
+        toc: Optional[TocAnalysis] = None,
     ) -> BookStructure:
-        """Parse all pages into a BookStructure tree."""
-        image_results = image_results or {}
+        """Parse all pages into a BookStructure tree.
 
+        If ``toc`` is provided, uses TOC page ranges as the skeleton (chapters +
+        lessons pre-built with correct page_start/page_end), then assigns content
+        blocks by page number.  Falls back to inline detection otherwise.
+        """
+        image_results = image_results or {}
         book = BookStructure(grade=grade, title=title, publisher=publisher)
 
+        if toc is not None:
+            return self._parse_with_toc(pages, book, toc, image_results)
+        return self._parse_inline(pages, book, image_results)
+
+    # ------------------------------------------------------------------
+    # TOC-based parsing (primary path when TOC is available)
+    # ------------------------------------------------------------------
+
+    def _parse_with_toc(
+        self,
+        pages: list[PageAnalysis],
+        book: BookStructure,
+        toc: TocAnalysis,
+        image_results: dict[tuple[int, int], ImageResult],
+    ) -> BookStructure:
+        """Build skeleton from TOC, then assign content blocks by page range."""
+        # 1. Build chapters and lessons from TOC entries
+        chapters: dict[int, Chapter] = {}
+        lessons_map: dict[tuple[int, int], Lesson] = {}  # (chapter_idx, lesson_idx) → Lesson
+
+        for entry in toc.entries:
+            if entry.type == "chapter":
+                ch = Chapter(
+                    index=entry.chapter_index,
+                    roman_index=entry.chapter_roman,
+                    title=entry.title,
+                    page_start=entry.page_start,
+                )
+                chapters[entry.chapter_index] = ch
+                book.chapters.append(ch)
+            elif entry.type in ("lesson", "section"):
+                ch = chapters.get(entry.chapter_index)
+                if ch is None:
+                    # TOC has lesson without preceding chapter entry — create synthetic
+                    ch = Chapter(
+                        index=entry.chapter_index,
+                        roman_index=entry.chapter_roman,
+                        title=f"Chương {entry.chapter_roman or entry.chapter_index}",
+                        page_start=entry.page_start,
+                    )
+                    chapters[entry.chapter_index] = ch
+                    book.chapters.append(ch)
+                lesson = Lesson(
+                    index=entry.lesson_index,
+                    title=entry.title,
+                    page_start=entry.page_start,
+                )
+                ch.lessons.append(lesson)
+                lessons_map[(entry.chapter_index, entry.lesson_index)] = lesson
+
+        # Sort chapters and lessons by index
+        book.chapters.sort(key=lambda c: c.index)
+        for ch in book.chapters:
+            ch.lessons.sort(key=lambda l: l.index)
+
+        logger.info(
+            "[TOC-parse] Skeleton built: %d chapters, %d lessons.",
+            len(book.chapters),
+            sum(len(c.lessons) for c in book.chapters),
+        )
+
+        # 2. Assign content blocks by page range
+        global_order = 0
+        for page in pages:
+            if self._is_toc_page(page):
+                continue
+
+            toc_lesson = toc.find_lesson(page.page_num)
+            toc_chapter = toc.find_chapter(page.page_num)
+
+            # Find the matching lesson object
+            if toc_lesson is not None:
+                target_lesson = lessons_map.get(
+                    (toc_lesson.chapter_index, toc_lesson.lesson_index)
+                )
+            else:
+                target_lesson = None
+
+            if target_lesson is None and toc_chapter is not None:
+                # Page is in chapter intro (before first lesson) — use first lesson
+                ch = chapters.get(toc_chapter.chapter_index)
+                target_lesson = ch.lessons[0] if ch and ch.lessons else None
+
+            for block in sorted(page.blocks, key=lambda b: b.order):
+                # Skip structural blocks (chapter/lesson headings) — already from TOC
+                if block.type in ("chapter_title", "lesson_title", "toc"):
+                    continue
+                global_order += 1
+                img_result = image_results.get((page.page_num, block.order))
+                final_block = self._convert_block(block, img_result, global_order)
+                if target_lesson is not None:
+                    target_lesson.content_blocks.append(final_block)
+                else:
+                    book.unassigned_blocks.append(final_block)
+
+        logger.info(
+            "[TOC-parse] Done: %d chapters, %d unassigned blocks.",
+            len(book.chapters),
+            len(book.unassigned_blocks),
+        )
+        return book
+
+    # ------------------------------------------------------------------
+    # Inline parsing (fallback when no TOC)
+    # ------------------------------------------------------------------
+
+    def _parse_inline(
+        self,
+        pages: list[PageAnalysis],
+        book: BookStructure,
+        image_results: dict[tuple[int, int], ImageResult],
+    ) -> BookStructure:
         current_chapter: Optional[Chapter] = None
         current_lesson: Optional[Lesson] = None
         global_order = 0  # running order counter across the whole book
 
         for page in pages:
+            # Skip TOC pages — Gemini marks them with a single block type="toc"
+            if self._is_toc_page(page):
+                logger.info("Page %d: TOC detected — skipping.", page.page_num)
+                continue
+
             for block in sorted(page.blocks, key=lambda b: b.order):
                 global_order += 1
-                text = (block.content or "").strip()
 
                 # ---- 1. Chapter detection --------------------------------
                 chapter_info = self._detect_chapter(block)
@@ -218,7 +349,7 @@ class StructureParser:
         """
         if block.type not in ("chapter_title", "text"):
             return None
-        text = (block.content or "").strip()
+        text = _to_str(block.content).strip()
         if not text:
             return None
         return self._parse_chapter_text(text)
@@ -254,7 +385,7 @@ class StructureParser:
         """
         if block.type not in ("lesson_title", "text"):
             return None
-        text = (block.content or "").strip()
+        text = _to_str(block.content).strip()
         if not text:
             return None
 
@@ -315,6 +446,23 @@ class StructureParser:
         return None
 
     # ------------------------------------------------------------------
+    # TOC detection
+    # ------------------------------------------------------------------
+
+    def _is_toc_page(self, page: PageAnalysis) -> bool:
+        """Return True if the page is a Table of Contents — should be skipped."""
+        blocks = page.blocks
+        # Gemini signals TOC with a single block type="toc"
+        if len(blocks) == 1 and _to_str(getattr(blocks[0], "type", "")) == "toc":
+            return True
+        # Fallback: first block content contains "MỤC LỤC" (in case Gemini ignores prompt)
+        if blocks:
+            first_content = _to_str(getattr(blocks[0], "content", "")).upper()
+            if "MỤC LỤC" in first_content:
+                return True
+        return False
+
+    # ------------------------------------------------------------------
     # Block conversion
     # ------------------------------------------------------------------
 
@@ -339,17 +487,17 @@ class StructureParser:
         exercise_type = ""
         exercise_num = 0
         if block_type == "exercise":
-            ex_info = self._detect_exercise((block.content or "").strip())
+            ex_info = self._detect_exercise(_to_str(block.content).strip())
             if ex_info:
                 exercise_type, exercise_num = ex_info
 
         return FinalContentBlock(
             type=block_type,
-            content=block.content or "",
-            latex=block.latex or "",
+            content=_to_str(block.content),
+            latex=_to_str(block.latex),
+            caption=_to_str(block.caption),
             image_url=image_url,
             thumbnail_url=thumbnail_url,
-            caption=block.caption or "",
             exercise_type=exercise_type,
             exercise_num=exercise_num,
             order=order,

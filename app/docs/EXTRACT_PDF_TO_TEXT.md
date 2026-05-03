@@ -1,7 +1,9 @@
-# 📚 SGK TOÁN PDF → API — AI PROMPT GUIDE v2
+# 📚 SGK TOÁN PDF → API — AI PROMPT GUIDE v3
 
 > **Stack:** FastAPI + MongoDB + Gemini Flash (OCR chính) + Mathpix (formula fallback)  
 > **Nguyên tắc:** Làm từng step một. Test xong mới qua bước kế. Copy từng prompt vào AI, chờ checklist ✅ trước khi tiếp.
+
+> **v3 — Cập nhật lớn:** TOC-based parsing (MỤC LỤC → skeleton chương/bài), Demo OCR API riêng, pipeline caching.
 
 ---
 
@@ -15,13 +17,24 @@ PyMuPDF → render từng trang thành ảnh (150–200 DPI, JPEG)
 Gemini Flash Vision (1 API call/trang)
    → Nhận diện layout + text + công thức + hình cùng lúc
    → Output JSON có cấu trúc block
+   → Nếu trang là MỤC LỤC → type="toc" (special block)
+   ↓
+TOC Detection (NEW):
+   - Phát hiện trang MỤC LỤC → gọi analyze_toc_page()
+   - Gemini phân tích TOC → TocAnalysis (entries: chapter/lesson + page_start)
+   - compute_page_ends() → xác định page_end cho mỗi entry
+   - Lưu toc.json để debug
    ↓
 Post-process JSON:
    - Nếu formula confidence thấp → gọi Mathpix v3/text (fallback)
    - Nếu formula OK → giữ LaTeX từ Gemini
    - Nếu image block → crop + lưu storage
+   - Cache: lưu page_analyses.json mỗi 10 trang (checkpoint)
    ↓
-Rule Engine: detect Chương / Bài / Ví dụ / Bài tập
+Structure Parser (TOC-first):
+   - Có TocAnalysis → _parse_with_toc(): build skeleton từ TOC, assign blocks by page range
+   - Không có TOC → _parse_inline(): detect Chương/Bài bằng Gemini labels + regex
+   - Bỏ qua trang TOC khi assign content
    ↓
 MongoDB normalize
    ↓
@@ -118,7 +131,7 @@ YÊU CẦU:
    MATHPIX_APP_KEY=your_app_key
    MATHPIX_ENABLED=false         # bật khi có key, tắt để test local
    MAX_FILE_SIZE_MB=50
-   GEMINI_MODEL=gemini-2.0-flash
+   GEMINI_MODEL=gemini-2.5-flash
 
 3. docker-compose.yml: chạy MongoDB + app
 
@@ -126,7 +139,7 @@ YÊU CẦU:
    # Các field đã có: app_name, debug, openai_api_key, mongo_url, mongo_db, ...
    storage_path: str = os.getenv("STORAGE_PATH", "./storage")
    gemini_api_key: Optional[str] = os.getenv("GEMINI_API_KEY")
-   gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+   gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
    mathpix_app_id: Optional[str] = os.getenv("MATHPIX_APP_ID")
    mathpix_app_key: Optional[str] = os.getenv("MATHPIX_APP_KEY")
    mathpix_enabled: bool = os.getenv("MATHPIX_ENABLED", "false").lower() == "true"
@@ -242,6 +255,8 @@ SAU KHI XONG, hãy:
 
 ## 🤖 PHASE 2 — GEMINI FLASH OCR SERVICE
 
+> **v3 update:** Thêm `TocEntry`, `TocAnalysis` dataclasses + `TOC_ANALYSIS_PROMPT` + `analyze_toc_page()`. `PAGE_ANALYSIS_PROMPT` cập nhật: TOC page → `type="toc"`, nội dung không kèm số trang.
+
 ### 📋 Prompt cho AI:
 
 ```
@@ -297,9 +312,13 @@ CHỈ trả về JSON, không giải thích thêm.
 PAGE_ANALYSIS_PROMPT = """
 Phân tích trang SGK Toán này. Nhận diện TẤT CẢ các block nội dung theo thứ tự đọc (trên→dưới, trái→phải).
 
-Với mỗi block, xác định:
-- type: chapter_title | lesson_title | text | formula | exercise | image | table | definition | note
-- content: nội dung text (nếu có)
+⚠️ QUAN TRỌNG — TOC PAGE: Nếu trang này là MỤC LỤC (table of contents), chỉ trả về đúng 1 block:
+{"type": "toc", "content": "MỤC LỤC", "order": 1, "confidence": 1.0, ...}
+KHÔNG phân tích thêm bất cứ gì trên trang MỤC LỤC.
+
+Với mỗi block (trang thường), xác định:
+- type: chapter_title | lesson_title | text | formula | exercise | image | table | definition | note | toc
+- content: nội dung text thuần (KHÔNG kèm số trang ở cuối dòng)
 - latex: công thức LaTeX chuẩn (nếu type=formula). Dùng đúng commands: \\frac{}{}, \\sqrt{}, \\sum_{i=1}^{n}, \\int_{a}^{b}, \\alpha, \\beta, \\gamma, \\Delta, \\Sigma, \\mathbb{R}, \\vec{v}, \\overline{AB}, \\angle, \\perp, \\parallel, \\in, \\subset, \\cup, \\cap
 - image_bbox: [x1,y1,x2,y2] tọa độ tương đối 0-1 nếu type=image (null nếu không phải)
 - caption: caption của hình (null nếu không có)
@@ -308,11 +327,27 @@ Với mỗi block, xác định:
 
 Patterns nhận diện:
 - chapter_title: "CHƯƠNG I", "Chương 1.", "CHƯƠNG 2:", text to/đậm ở đầu chapter
-- lesson_title: "Bài 1.", "Bài 2:", "§1.", text to ở đầu bài học
+- lesson_title: "Bài 1.", "Bài 2:", "§1.", text to ở đầu bài học; "Bài tập cuối chương" cũng là lesson_title
 - exercise: bắt đầu bằng "Bài tập", "Luyện tập", "Ví dụ N", "Hoạt động N", "Khám phá"
 - definition: "Định nghĩa", "Tính chất", "Định lý", "Hệ quả" thường có viền/nền màu
 - note: "Chú ý", "Nhận xét", "Ghi nhớ"
 - formula: bất kỳ công thức toán nào, kể cả inline trong câu
+
+TOC_ANALYSIS_PROMPT (dùng riêng cho trang MỤC LỤC):
+Phân tích trang MỤC LỤC này. Trích xuất TOÀN BỘ entries theo thứ tự xuất hiện.
+Mỗi entry là 1 chương hoặc 1 bài học. Trả về JSON:
+{
+  "entries": [
+    {"type": "chapter", "chapter_index": 1, "chapter_roman": "I", "lesson_index": 0,
+     "title": "Tên chương", "page_start": 5},
+    {"type": "lesson", "chapter_index": 1, "chapter_roman": "I", "lesson_index": 1,
+     "title": "Tên bài", "page_start": 6},
+    {"type": "section", "chapter_index": 1, "chapter_roman": "I", "lesson_index": 99,
+     "title": "Bài tập cuối chương I", "page_start": 20}
+  ]
+}
+Quy tắc: chapter_index là số nguyên (I→1, II→2...). lesson_index=0 cho chapter header,
+lesson_index=99 cho "Bài tập cuối chương". page_start là số trang trong SGK (không phải số thứ tự ảnh).
 
 Trả về JSON:
 {
@@ -371,10 +406,42 @@ Trả về JSON:
    - Max 3 retries nếu API error
    - Exponential backoff: 2s, 4s, 8s
 
+9. Dataclasses mới cho TOC (v3):
+
+@dataclass
+class TocEntry:
+    type: str           # "chapter" | "lesson" | "section"
+    chapter_index: int
+    chapter_roman: str  # "I", "II", ... hoặc ""
+    lesson_index: int   # 0=chapter header, 99=bài tập cuối chương
+    title: str
+    page_start: int
+    page_end: int = 0   # filled by compute_page_ends()
+
+@dataclass
+class TocAnalysis:
+    entries: list[TocEntry]
+    toc_page_num: int
+
+    def compute_page_ends(self, total_pages: int) -> None:
+        # page_end của entry[i] = page_start của entry[i+1] - 1
+        # entry cuối cùng → page_end = total_pages
+
+    def find_lesson(self, page_num: int) -> TocEntry | None:
+        # Trả về lesson entry có page_start <= page_num <= page_end
+
+    def find_chapter(self, page_num: int) -> TocEntry | None:
+        # Trả về chapter entry tương ứng
+
+10. Method mới analyze_toc_page() (v3):
+    - Gọi Gemini với TOC_ANALYSIS_PROMPT (riêng biệt, không phải PAGE_ANALYSIS_PROMPT)
+    - Parse JSON → list TocEntry
+    - Return TocAnalysis | None
+
 LƯU Ý:
 - Dùng google.generativeai SDK: import google.generativeai as genai
 - Import config: from app.core.config import settings
-- Model: settings.gemini_model (default: "gemini-2.0-flash")
+- Model: settings.gemini_model (default: "gemini-2.5-flash")
 - API key: settings.gemini_api_key
 - Temperature: 0.1 (cần output ổn định, không sáng tạo)
 - Không dùng stream (cần full response để parse JSON)
@@ -383,12 +450,15 @@ SAU KHI XONG, hãy:
 ✅ CHECKLIST:
 - [x] GeminiOCRService khởi tạo không lỗi
 - [x] analyze_page() trả về PageAnalysis hợp lệ
+- [x] Trang MỤC LỤC → 1 block duy nhất type="toc"
 - [x] JSON parse thành công với response thật
 - [x] Rate limiter hoạt động (không exceed 10 RPM)
 - [x] Retry logic hoạt động khi API timeout
 - [x] formula block có latex hợp lệ
 - [x] image block có image_bbox dạng [x1,y1,x2,y2]
 - [x] needs_mathpix được set đúng
+- [x] analyze_toc_page() trả về TocAnalysis với đủ entries
+- [x] TocAnalysis.compute_page_ends() tính đúng page_end
 
 ⚠️ BÁO LỖI NẾU:
 - Gemini trả về text không phải JSON → cần fix prompt
@@ -618,6 +688,8 @@ SAU KHI XONG, hãy:
 
 ## 🏗️ PHASE 5 — STRUCTURE PARSER
 
+> **v3 update:** `parse_book()` giờ nhận thêm `toc: Optional[TocAnalysis]`. Nếu có TOC → `_parse_with_toc()` build skeleton từ TOC entries rồi assign blocks by page range. Fallback: `_parse_inline()` như cũ.
+
 ### 📋 Prompt cho AI:
 
 ```
@@ -700,7 +772,30 @@ class BookStructure:
 
 3. Class StructureParser:
 
-   parse_book(pages: list[PageAnalysis], grade: int, title: str) -> BookStructure
+   # v3: toc parameter mới
+   parse_book(
+       pages: list[PageAnalysis],
+       grade: int,
+       title: str,
+       publisher: str = "",
+       image_results: dict[tuple[int,int], ImageResult] = None,
+       toc: Optional[TocAnalysis] = None,   # NEW v3
+   ) -> BookStructure
+   # Nếu toc có → _parse_with_toc(); không có → _parse_inline()
+
+   # v3: TOC-based parsing (primary path)
+   _parse_with_toc(
+       pages, book, toc, image_results
+   ) -> BookStructure:
+   # 1. Build chapter/lesson skeleton từ toc.entries
+   # 2. Sort theo index
+   # 3. Với mỗi trang (bỏ qua TOC page), gọi toc.find_lesson(page_num)
+   #    → assign content blocks vào đúng lesson
+   # 4. Skip blocks type chapter_title/lesson_title/toc (đã có từ TOC)
+
+   # v3: Inline parsing (fallback)
+   _parse_inline(pages, book, image_results) -> BookStructure
+   # Logic cũ: detect chapter/lesson bằng Gemini labels + regex
 
    _detect_chapter(block: ContentBlock) -> tuple[int, str, str] | None
    # Return (chapter_num, roman, chapter_title) hoặc None
@@ -713,11 +808,17 @@ class BookStructure:
 
    _convert_block(block: ContentBlock, image_result: ImageResult | None) -> FinalContentBlock
 
+   # v3: TOC page detection
+   _is_toc_page(page: PageAnalysis) -> bool:
+   # True nếu: 1 block duy nhất type="toc", hoặc content đầu chứa "MỤC LỤC"
+
 4. QUAN TRỌNG — xử lý block "chapter_title" và "lesson_title" từ Gemini:
    - Gemini đã label sẵn chapter_title/lesson_title → ưu tiên dùng label này
    - Nếu block.type == "chapter_title" → KHÔNG cần regex, parse thẳng
    - Nếu block.type == "text" → chạy regex để detect chapter/lesson ẩn
    - Regex là safety net, không phải primary detector
+   - v3: Khi dùng _parse_with_toc() → SKIP tất cả block chapter_title/lesson_title
+     (cấu trúc đã build từ TOC, không cần detect lại)
 
 SAU KHI XONG, hãy:
 ✅ CHECKLIST:
@@ -728,6 +829,9 @@ SAU KHI XONG, hãy:
 - [x] unassigned_blocks chứa content trước chapter đầu tiên
 - [x] Chapter index là số, có thêm roman_index nếu có
 - [x] parse_book() không crash với SGK không có chapter rõ ràng
+- [x] v3: _parse_with_toc() build skeleton đúng từ TocAnalysis
+- [x] v3: _is_toc_page() skip trang MỤC LỤC
+- [x] v3: Fallback _parse_inline() nếu không có TOC
 
 ⚠️ BÁO LỖI NẾU:
 - Regex false positive (match nhầm text thường)
@@ -885,6 +989,8 @@ SAU KHI XONG, hãy:
 
 ## ⚡ PHASE 7 — PROCESSING PIPELINE
 
+> **v3 update:** TOC detection trong STEP 2, cache `page_analyses.json` mỗi 10 trang, `_log_structure()` debug helper, `_save_toc()` lưu `toc.json`.
+
 ### 📋 Prompt cho AI:
 
 ```
@@ -894,9 +1000,15 @@ Implement PHASE 7: Processing Pipeline — kết nối tất cả services.
 
 File: app/services/processing_pipeline.py
 
-FLOW HOÀN CHỈNH:
-PDF → Pages → [Gemini per page] → [Mathpix fallback cho formula khó] →
-[Image crop] → [Structure parse] → MongoDB
+FLOW HOÀN CHỈNH (v3):
+PDF → Pages → [Gemini per page]
+   → Nếu trang là TOC: analyze_toc_page() → TocAnalysis → lưu toc.json
+   → [Mathpix fallback cho formula khó]
+   → [Image crop]
+   → Cache page_analyses.json mỗi 10 trang
+→ [Structure parse với toc=TocAnalysis nếu có]
+→ [_log_structure() debug]
+→ MongoDB
 
 YÊU CẦU:
 
@@ -918,43 +1030,58 @@ class ProcessingPipeline:
 
     async def run(self) -> None: ...
 
-2. PIPELINE STEPS:
+2. PIPELINE STEPS (v3):
 
 async def run(self):
     try:
-        # PHASE 1: Ingest
+        # STEP 1: Ingest PDF → page images
         await self._update("ingesting", 5)
-        pages_info = self.pdf_parser.render_pages(self.pdf_path, ...)
+        pages_info = render_pages(self.pdf_path, output_dir)
         total = len(pages_info)
 
-        # PHASE 2: Gemini OCR per page
+        # STEP 2: Gemini OCR per page (với cache + TOC detection)
         await self._update("analyzing", 10)
         page_analyses = []
-        for i, page_info in enumerate(pages_info):
-            analysis = await self.gemini.analyze_page(page_info.image_path, page_info.page_num)
-            self.gemini_call_count += 1
+        toc_analysis: TocAnalysis | None = None   # v3
 
-            # PHASE 3: Mathpix fallback cho formula needs_mathpix=True
-            analysis = await self._apply_mathpix_fallback(analysis, page_info.image_path)
+        cache_path = Path("data") / "books" / book_id / "page_analyses.json"
+        if cache_path.exists():
+            page_analyses = self._load_cache(cache_path)  # skip Gemini
+        else:
+            for i, page_info in enumerate(pages_info):
+                analysis = await self.gemini.analyze_page(...)
+                self.gemini_call_count += 1
 
-            # PHASE 4: Extract images
-            analysis = await self._extract_images(analysis, page_info)
+                # v3: Detect TOC và extract entries
+                if toc_analysis is None and self._is_toc_analysis(analysis):
+                    toc_analysis = await self.gemini.analyze_toc_page(
+                        page_info.image_path, page_info.page_num
+                    )
+                    if toc_analysis:
+                        toc_analysis.compute_page_ends(total)
+                        self._save_toc(toc_analysis)  # → data/books/<id>/toc.json
 
-            page_analyses.append(analysis)
+                analysis = await self._apply_mathpix_fallback(analysis, page_info.image_path)
+                page_img_results = await self._extract_images(analysis, page_info)
+                page_analyses.append(analysis)
 
-            # Update progress (10% → 80%)
-            progress = 10 + int((i + 1) / total * 70)
-            await self._update("analyzing", progress, f"Page {i+1}/{total}")
+                # Checkpoint mỗi 10 trang
+                if (i + 1) % 10 == 0:
+                    self._save_cache(cache_path, page_analyses)
 
-        # PHASE 5: Structure parse
+            self._save_cache(cache_path, page_analyses)  # final
+
+        # STEP 3: Structure parse
         await self._update("parsing", 82)
-        book_structure = self.structure_parser.parse_book(page_analyses, ...)
+        book_structure = self.structure_parser.parse_book(
+            page_analyses, ..., toc=toc_analysis  # v3
+        )
+        await self._log_structure(book_structure)  # v3: debug
 
-        # PHASE 6: Save to MongoDB
+        # STEP 4: Save to MongoDB
         await self._update("saving", 88)
         await self._save_to_db(book_structure)
 
-        # Done
         await self._update_done(self.gemini_call_count, self.mathpix_call_count)
 
     except Exception as e:
@@ -991,6 +1118,28 @@ async def run(self):
        pipeline = ProcessingPipeline(book_id, pdf_path)
        await pipeline.run()
 
+8. v3 — Methods mới:
+
+   @staticmethod
+   def _is_toc_analysis(analysis: PageAnalysis) -> bool:
+       # True nếu analysis có 1 block type="toc" hoặc content có "MỤC LỤC"
+
+   def _save_toc(self, toc: TocAnalysis) -> None:
+       # Lưu data/books/<book_id>/toc.json (debug)
+       # Format: {"toc_page_num": N, "entries": [{type, chapter_index, ...}]}
+
+   async def _log_structure(self, book_structure: BookStructure) -> None:
+       # Log per-chapter/lesson block count ra console
+       # Lưu data/books/<book_id>/structure_debug.json
+
+   def _save_cache(self, path, page_analyses): ...
+   def _load_cache(self, path) -> list[PageAnalysis]: ...
+
+Cache path convention:
+   data/books/<book_id>/page_analyses.json   ← Gemini results cache
+   data/books/<book_id>/toc.json             ← TOC entries
+   data/books/<book_id>/structure_debug.json ← structure log
+
 SAU KHI XONG, hãy:
 ✅ CHECKLIST:
 - [x] Pipeline chạy end-to-end không crash
@@ -1001,6 +1150,10 @@ SAU KHI XONG, hãy:
 - [x] gemini_calls và mathpix_calls được đếm đúng
 - [x] Error → status="error", message rõ ràng
 - [x] Temp files cleanup sau khi xong
+- [x] v3: TOC page detected → analyze_toc_page() → TocAnalysis
+- [x] v3: Cache lưu sau 10 trang + cuối cùng
+- [x] v3: Nếu cache tồn tại → skip Gemini
+- [x] v3: _log_structure() lưu structure_debug.json
 
 ⚠️ BÁO LỖI NẾU:
 - Gemini rate limit 429 trong vòng lặp → cần đợi
@@ -1163,7 +1316,78 @@ SAU KHI XONG, hãy:
 
 ---
 
-## 🧪 PHASE 9 — INTEGRATION TEST END-TO-END
+## � PHASE 8.5 — DEMO OCR API (v3 — mới hoàn toàn)
+
+> Endpoint riêng để demo OCR một ảnh bất kỳ, **hoàn toàn tách biệt** với pipeline sách thật.
+
+### 📋 Prompt cho AI:
+
+```
+Tạo Demo OCR API riêng tại /api/v1/demo/...
+Không ảnh hưởng đến dữ liệu sách thật, không chạy full pipeline.
+
+File: app/controllers/demo_controller.py
+
+ENDPOINTS:
+
+POST /api/v1/demo/ocr
+  - Upload 1 ảnh (JPEG/PNG/WEBP, ≤10MB)
+  - Lưu vào storage/demo/<session_id>/page_01.jpg
+  - Gọi gemini.analyze_page()
+  - Nếu is_toc: tự động gọi thêm gemini.analyze_toc_page() → field "toc" trong response
+  - Lưu kết quả vào MongoDB collection "demo_analyses"
+  - Trả về JSON đầy đủ với is_toc, blocks[], toc (hoặc null)
+
+GET /api/v1/demo/ocr
+  - Liệt kê 20 session gần nhất
+
+GET /api/v1/demo/ocr/{session_id}
+  - Xem lại kết quả 1 session
+
+RESPONSE FORMAT (POST):
+{
+  "session_id": "707f8a60188e",
+  "demo_folder": "storage/demo/707f8a60188e",
+  "pages": [{
+    "image_index": 1,
+    "filename": "6.jpg",
+    "page_num": 1,
+    "processing_time_ms": 2331,
+    "is_toc": true,
+    "num_blocks": 1,
+    "blocks": [{"type": "toc", "content": "MỤC LỤC", ...}],
+    "toc": {
+      "toc_page_num": 1,
+      "entries": [
+        {"type": "chapter", "chapter_index": 1, "chapter_roman": "I",
+         "lesson_index": 0, "title": "...", "page_start": 5},
+        {"type": "lesson", "chapter_index": 1, "chapter_roman": "I",
+         "lesson_index": 1, "title": "...", "page_start": 6},
+        ...
+      ]
+    }
+  }]
+}
+
+LƯU Ý:
+- session_id = uuid4().hex[:12]
+- KHÔNG gọi ImageExtractor (chỉ analyze, không crop)
+- image_bbox trong response là tọa độ thô từ Gemini (chưa crop)
+- MongoDB collection: "demo_analyses" (riêng, không phải "books")
+```
+
+✅ CHECKLIST:
+
+- [x] POST /demo/ocr nhận 1 ảnh, trả về blocks
+- [x] Trang MỤC LỤC → is_toc=true + field toc có entries
+- [x] Trang bình thường → is_toc=false + toc=null
+- [x] Lưu vào MongoDB demo_analyses
+- [x] GET list/detail hoạt động
+- [x] Tách biệt hoàn toàn với book pipeline
+
+---
+
+## �🧪 PHASE 9 — INTEGRATION TEST END-TO-END
 
 ### 📋 Prompt cho AI:
 
@@ -1314,15 +1538,17 @@ YÊU CẦU:
 
 ### Stack cuối cùng
 
-| Layer            | Tool                | Vai trò                                        |
-| ---------------- | ------------------- | ---------------------------------------------- |
-| PDF Ingestion    | PyMuPDF             | Render trang → JPEG 150 DPI                    |
-| OCR chính        | Gemini Flash Vision | Text + layout + formula + detect image regions |
-| Formula fallback | Mathpix v3/text     | Khi Gemini fail với công thức phức tạp         |
-| Image storage    | Local JPEG          | Crop từ bbox, serve qua FastAPI static         |
-| Structure        | Rule Engine (regex) | Detect Chương/Bài từ Gemini labels             |
-| Database         | MongoDB + Motor     | Async, text index cho search                   |
-| API              | FastAPI             | REST endpoints + BackgroundTasks               |
+| Layer            | Tool                | Vai trò                                                                  |
+| ---------------- | ------------------- | ------------------------------------------------------------------------ |
+| PDF Ingestion    | PyMuPDF             | Render trang → JPEG 150 DPI                                              |
+| OCR chính        | Gemini Flash Vision | Text + layout + formula + detect image regions; TOC → `type="toc"` block |
+| TOC Analysis     | Gemini (v3)         | `analyze_toc_page()` → TocAnalysis (chapters + lessons + page ranges)    |
+| Formula fallback | Mathpix v3/text     | Khi Gemini fail với công thức phức tạp                                   |
+| Image storage    | Local JPEG          | Crop từ bbox, serve qua FastAPI static                                   |
+| Structure        | TOC-first + Regex   | TOC skeleton → assign blocks by page range; fallback: inline label/regex |
+| Cache            | JSON file           | `page_analyses.json` checkpoint, `toc.json`, `structure_debug.json`      |
+| Database         | MongoDB + Motor     | Async, text index cho search; `demo_analyses` collection riêng cho demo  |
+| API              | FastAPI             | REST endpoints + BackgroundTasks + `/api/v1/demo/ocr` endpoint riêng     |
 
 ### Mathpix LaTeX Coverage cho SGK Toán
 

@@ -46,7 +46,7 @@ def render_pages(pdf_path: str, output_dir: str) -> list[PageInfo]:
     results: list[PageInfo] = []
 
     with fitz.open(pdf_path) as doc:
-        mat = fitz.Matrix(150 / 72, 150 / 72)  # 72 dpi is fitz default
+        mat = fitz.Matrix(120 / 72, 120 / 72)  # 120 DPI — smaller than 150
 
         for page in doc:
             page_num = page.number + 1  # 1-based
@@ -63,16 +63,17 @@ def render_pages(pdf_path: str, output_dir: str) -> list[PageInfo]:
             filename = f"page_{page_num:03d}.jpg"
             image_path = os.path.join(pages_dir, filename)
 
-            pil_img.save(image_path, format="JPEG", quality=85, optimize=True)
+            pil_img.save(image_path, format="JPEG", quality=70, optimize=True)
 
             size_kb = os.path.getsize(image_path) / 1024
-            if size_kb > 200:
-                logger.warning(
-                    "Page %d: JPEG %.1f KB > 200 KB. "
-                    "Consider reducing DPI or quality.",
-                    page_num,
-                    size_kb,
-                )
+            if size_kb > 150:
+                # Resize to 80% and re-save with lower quality
+                new_w = int(pil_img.width * 0.8)
+                new_h = int(pil_img.height * 0.8)
+                pil_img = pil_img.resize((new_w, new_h), Image.LANCZOS)
+                pil_img.save(image_path, format="JPEG", quality=65, optimize=True)
+                size_kb = os.path.getsize(image_path) / 1024
+                logger.debug("Page %d resized: %.1f KB", page_num, size_kb)
 
             results.append(
                 PageInfo(
