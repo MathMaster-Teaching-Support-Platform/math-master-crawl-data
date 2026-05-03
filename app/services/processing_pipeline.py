@@ -16,7 +16,7 @@ from app.repositories.content_repository import content_repository
 from app.schemas.chapter import ChapterCreate
 from app.schemas.lesson import LessonCreate
 from app.schemas.content import ContentBlockCreate
-from app.services.gemini_service import GeminiOCRService, PageAnalysis, ContentBlock, TocAnalysis
+from app.services.gemini_service import GeminiOCRService, PageAnalysis, ContentBlock, TocAnalysis, TocEntry
 from app.services.image_service import ImageExtractor, ImageResult
 from app.services.mathpix_service import MathpixService
 from app.services.pdf_parser import render_pages, PageInfo
@@ -166,7 +166,7 @@ class ProcessingPipeline:
             logger.exception("Pipeline failed for book_id=%s", self.book_id)
             try:
                 await self.book_repo.update_status(
-                    self.book_id, "failed", error="Pipeline failed — see server logs"
+                    self.book_id, "error", error="Pipeline failed — see server logs"
                 )
             except Exception:
                 pass
@@ -475,7 +475,7 @@ async def run_pipeline(book_id: str, pdf_path: str) -> None:
     except Exception:
         logger.exception("Pipeline init failed for book_id=%s", book_id)
         try:
-            await book_repository.update_status(book_id, "failed", error="Pipeline init failed")
+            await book_repository.update_status(book_id, "error", error="Pipeline init failed")
         except Exception:
             pass
         return
@@ -544,6 +544,27 @@ async def reprocess_from_cache(book_id: str, manual_meta: dict | None = None) ->
                 img_results = await pipeline._extract_images(analysis, fake_page)
                 all_image_results.update(img_results)
 
+        # Load TOC from toc.json so structure parser uses TOC-based path
+        toc_analysis: TocAnalysis | None = None
+        toc_path = Path("data") / "books" / book_id / "toc.json"
+        if toc_path.exists():
+            try:
+                toc_data = json.loads(toc_path.read_text(encoding="utf-8"))
+                entries = [TocEntry(**e) for e in toc_data.get("entries", [])]
+                toc_analysis = TocAnalysis(
+                    entries=entries,
+                    toc_page_num=toc_data.get("toc_page_num", 0),
+                )
+                logger.info(
+                    "[%s] reprocess: loaded TOC with %d entries from toc.json.",
+                    book_id, len(entries),
+                )
+            except Exception:
+                logger.warning(
+                    "[%s] reprocess: failed to load toc.json — falling back to inline parsing.",
+                    book_id, exc_info=True,
+                )
+
         # STEP 3: structure parse
         await book_repository.update_status(book_id, "processing", 82, "parsing")
         book_structure = pipeline.structure_parser.parse_book(
@@ -552,6 +573,7 @@ async def reprocess_from_cache(book_id: str, manual_meta: dict | None = None) ->
             title=book_doc.title if book_doc else "",
             publisher=book_doc.publisher if book_doc else "",
             image_results=all_image_results,
+            toc=toc_analysis,
         )
         logger.info(
             "[%s] reprocess STEP 3 done: %d chapters, %d lessons.",
@@ -570,6 +592,6 @@ async def reprocess_from_cache(book_id: str, manual_meta: dict | None = None) ->
     except Exception:
         logger.exception("[%s] reprocess_from_cache failed.", book_id)
         try:
-            await book_repository.update_status(book_id, "failed", error="Reprocess failed — see server logs")
+            await book_repository.update_status(book_id, "error", error="Reprocess failed — see server logs")
         except Exception:
             pass

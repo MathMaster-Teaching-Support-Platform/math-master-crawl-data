@@ -272,10 +272,10 @@ async def export_book_markdown(book_id: str):
 
             for b in blocks:
                 if b.type == "formula":
-                    if b.content:
-                        lines.append(b.content)
                     if b.latex:
                         lines.append(f"$${b.latex}$$")
+                    elif b.content:
+                        lines.append(b.content)
                 elif b.type == "image":
                     caption = b.caption or ""
                     lines.append(f"![{caption}]({b.image_url})")

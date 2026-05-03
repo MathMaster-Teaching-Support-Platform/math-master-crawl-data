@@ -22,6 +22,7 @@ rapidfuzz
 fuzzywuzzy
 pymupdf==1.25.5
 pillow==12.2.0
+numpy>=1.24.0
 google-genai>=1.74.0
 reportlab>=4.0.0
 cryptography==47.0.0
