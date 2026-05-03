@@ -25,9 +25,12 @@ _LESSON_PATTERNS = [
     re.compile(r"^(BÀI|Bài)\s+(\d+)[.:\s]?\s*(.*)$", re.UNICODE),
     # "§1.", "§ 2:"
     re.compile(r"^§\s*(\d+)[.:\s]?\s*(.*)$", re.UNICODE),
-    # "1.", "2." at start of line — last-resort fallback (short headings only)
-    re.compile(r"^(\d+)\.\s+(.+)$", re.UNICODE),
 ]
+# NOTE: We deliberately do NOT include the loose `^(\d+)\. (.+)$` pattern
+# globally — it false-positives on numbered list items inside exercises
+# (e.g. "1. Tính giá trị x..."). Apply it only when the block is already
+# Gemini-tagged as `lesson_title`. See `_parse_lesson_text(allow_loose=True)`.
+_LESSON_LOOSE_PATTERN = re.compile(r"^(\d+)\.\s+(.+)$", re.UNICODE)
 
 _EXERCISE_PATTERNS: dict[str, re.Pattern] = {
     "vi_du":     re.compile(r"^(Ví dụ|VÍ DỤ)\s*(\d+)", re.UNICODE),
@@ -87,6 +90,10 @@ class FinalContentBlock:
     order: int = 0
     confidence: float = 1.0
     source: str = "gemini"    # "gemini" | "mathpix"
+    # carried through so we can perform a cross-page continuation merge
+    is_continuation: bool = False
+    is_display_math: bool = False
+    page_num: int = 0
 
 
 @dataclass
@@ -215,6 +222,7 @@ class StructureParser:
 
         # 2. Assign content blocks by page range
         global_order = 0
+        unassigned_pages: dict[int, int] = {}  # page_num → block count (for logging)
         for page in pages:
             if self._is_toc_page(page):
                 continue
@@ -222,7 +230,6 @@ class StructureParser:
             toc_lesson = toc.find_lesson(page.page_num)
             toc_chapter = toc.find_chapter(page.page_num)
 
-            # Find the matching lesson object
             if toc_lesson is not None:
                 target_lesson = lessons_map.get(
                     (toc_lesson.chapter_index, toc_lesson.lesson_index)
@@ -231,21 +238,35 @@ class StructureParser:
                 target_lesson = None
 
             if target_lesson is None and toc_chapter is not None:
-                # Page is in chapter intro (before first lesson) — use first lesson
                 ch = chapters.get(toc_chapter.chapter_index)
                 target_lesson = ch.lessons[0] if ch and ch.lessons else None
 
-            for block in sorted(page.blocks, key=lambda b: b.order):
-                # Skip structural blocks (chapter/lesson headings) — already from TOC
+            # Sort by (column, order) so two-column SGK layouts read left→right
+            for block in sorted(page.blocks, key=lambda b: (getattr(b, "column", 1), b.order)):
                 if block.type in ("chapter_title", "lesson_title", "toc"):
                     continue
                 global_order += 1
                 img_result = image_results.get((page.page_num, block.order))
-                final_block = self._convert_block(block, img_result, global_order)
+                final_block = self._convert_block(block, img_result, global_order, page.page_num)
                 if target_lesson is not None:
                     target_lesson.content_blocks.append(final_block)
                 else:
                     book.unassigned_blocks.append(final_block)
+                    unassigned_pages[page.page_num] = unassigned_pages.get(page.page_num, 0) + 1
+
+        # Cross-page block merge (uses is_continuation hints from Gemini)
+        for ch in book.chapters:
+            for lesson in ch.lessons:
+                lesson.content_blocks = self._merge_continuations(lesson.content_blocks)
+
+        if unassigned_pages:
+            preview = ", ".join(
+                f"p{p}={n}" for p, n in sorted(unassigned_pages.items())[:10]
+            )
+            logger.warning(
+                "[TOC-parse] %d unassigned blocks across %d pages (first 10: %s).",
+                sum(unassigned_pages.values()), len(unassigned_pages), preview,
+            )
 
         logger.info(
             "[TOC-parse] Done: %d chapters, %d unassigned blocks.",
@@ -274,7 +295,10 @@ class StructureParser:
                 logger.info("Page %d: TOC detected — skipping.", page.page_num)
                 continue
 
-            for block in sorted(page.blocks, key=lambda b: b.order):
+            # Sort by (column, order) so two-column SGK layouts read left→right
+            for block in sorted(
+                page.blocks, key=lambda b: (getattr(b, "column", 1), b.order)
+            ):
                 global_order += 1
 
                 # ---- 1. Chapter detection --------------------------------
@@ -382,6 +406,9 @@ class StructureParser:
         """Return ``(lesson_num, lesson_title)`` or ``None``.
 
         Gemini ``lesson_title`` labels are trusted directly; regex is fallback.
+        The loose ``^(\\d+)\\. (.+)$`` pattern is allowed ONLY when Gemini
+        already tagged the block as a lesson_title — it's too noisy to apply
+        to plain text blocks (e.g. exercise enumerations).
         """
         if block.type not in ("lesson_title", "text"):
             return None
@@ -390,7 +417,7 @@ class StructureParser:
             return None
 
         if block.type == "lesson_title":
-            result = self._parse_lesson_text(text)
+            result = self._parse_lesson_text(text, allow_loose=True)
             if result:
                 return result
             # Gemini is confident — treat whole text as title even without regex match
@@ -400,9 +427,11 @@ class StructureParser:
         if self._parse_chapter_text(text) is not None:
             return None
 
-        return self._parse_lesson_text(text)
+        return self._parse_lesson_text(text, allow_loose=False)
 
-    def _parse_lesson_text(self, text: str) -> Optional[tuple[int, str]]:
+    def _parse_lesson_text(
+        self, text: str, *, allow_loose: bool = False
+    ) -> Optional[tuple[int, str]]:
         for i, pat in enumerate(_LESSON_PATTERNS):
             m = pat.match(text)
             if m is None:
@@ -410,21 +439,17 @@ class StructureParser:
             groups = m.groups()
 
             if i == 0:
-                # ^(BÀI|Bài)\s+(\d+)[.:\s]?\s*(.*)$
                 l_num = int(groups[1])
                 l_title = groups[2].strip() if len(groups) > 2 else ""
-            elif i == 1:
-                # ^§\s*(\d+)[.:\s]?\s*(.*)$
+            else:
                 l_num = int(groups[0])
                 l_title = groups[1].strip() if len(groups) > 1 else ""
-            else:
-                # ^(\d+)\.\s+(.+)$  — loose; skip long lines (numbered lists)
-                if len(text) > 120:
-                    return None
-                l_num = int(groups[0])
-                l_title = groups[1].strip()
-
             return l_num, l_title
+
+        if allow_loose:
+            m = _LESSON_LOOSE_PATTERN.match(text)
+            if m is not None and len(text) <= 120:
+                return int(m.group(1)), m.group(2).strip()
         return None
 
     def _detect_exercise(self, text: str) -> Optional[tuple[str, int]]:
@@ -471,10 +496,10 @@ class StructureParser:
         block: ContentBlock,
         image_result: Optional[ImageResult],
         order: int,
+        page_num: int = 0,
     ) -> FinalContentBlock:
         """Convert a Gemini ``ContentBlock`` into a ``FinalContentBlock``."""
         block_type = block.type
-        # Structural types that somehow reach here are treated as plain text
         if block_type in ("chapter_title", "lesson_title"):
             block_type = "text"
 
@@ -503,4 +528,44 @@ class StructureParser:
             order=order,
             confidence=block.confidence,
             source=getattr(block, "source", "gemini"),
+            is_continuation=getattr(block, "is_continuation", False),
+            is_display_math=getattr(block, "is_display_math", False),
+            page_num=page_num,
         )
+
+    # ------------------------------------------------------------------
+    # Cross-page continuation merge
+    # ------------------------------------------------------------------
+
+    _MERGEABLE_TYPES = ("text", "definition", "exercise", "note")
+
+    @classmethod
+    def _merge_continuations(
+        cls, blocks: list[FinalContentBlock]
+    ) -> list[FinalContentBlock]:
+        """Merge a block flagged ``is_continuation`` with the previous one.
+
+        Only joins when both blocks share a mergeable type and are on
+        consecutive pages — protects against accidental over-merging.
+        """
+        if len(blocks) < 2:
+            return blocks
+        merged: list[FinalContentBlock] = []
+        for blk in blocks:
+            if (
+                merged
+                and blk.is_continuation
+                and blk.type in cls._MERGEABLE_TYPES
+                and merged[-1].type == blk.type
+                and blk.page_num - merged[-1].page_num in (0, 1)
+            ):
+                prev = merged[-1]
+                if blk.content:
+                    prev.content = (prev.content + " " + blk.content).strip() if prev.content else blk.content
+                if blk.latex and blk.latex not in prev.latex:
+                    prev.latex = (prev.latex + " " + blk.latex).strip() if prev.latex else blk.latex
+                # Lower confidence to the min of the two
+                prev.confidence = min(prev.confidence, blk.confidence)
+                continue
+            merged.append(blk)
+        return merged

@@ -20,11 +20,36 @@ from app.services.gemini_service import GeminiOCRService, PageAnalysis, ContentB
 from app.services.image_service import ImageExtractor, ImageResult
 from app.services.mathpix_service import MathpixService
 from app.services.pdf_parser import render_pages, PageInfo
-from app.services.structure_parser import StructureParser, BookStructure
+from app.services.structure_parser import StructureParser, BookStructure, Chapter, Lesson
 
 logger = logging.getLogger(__name__)
 
 _KEEP_PAGE_IMAGES: bool = os.getenv("KEEP_PAGE_IMAGES", "false").lower() == "true"
+
+# Number of pages analysed concurrently. The Gemini rate limiter keeps the
+# global call rate within free-tier limits even when this is high.
+_GEMINI_BATCH_SIZE: int = int(os.getenv("GEMINI_BATCH_SIZE", "5"))
+
+
+def _book_data_dir(book_id: str) -> Path:
+    """Absolute on-disk dir for cache/debug artifacts of a single book."""
+    return Path(settings.storage_path) / "books" / book_id
+
+
+def _cache_path(book_id: str) -> Path:
+    return _book_data_dir(book_id) / "page_analyses.json"
+
+
+def _toc_path(book_id: str) -> Path:
+    return _book_data_dir(book_id) / "toc.json"
+
+
+def _metadata_path(book_id: str) -> Path:
+    return _book_data_dir(book_id) / "metadata.json"
+
+
+def _structure_debug_path(book_id: str) -> Path:
+    return _book_data_dir(book_id) / "structure_debug.json"
 
 
 class ProcessingPipeline:
@@ -55,73 +80,35 @@ class ProcessingPipeline:
             await self.book_repo.update_total_pages(self.book_id, total)
             logger.info("[%s] STEP 1/4 done: %d pages rendered.", self.book_id, total)
 
-            # Save metadata so reprocess can restore the book if deleted
             await self._save_metadata(total)
 
-            # STEP 2: Per-page: Gemini OCR + Mathpix fallback + image extraction
+            # STEP 2: Gemini OCR (batched) + Mathpix fallback + image extraction
             logger.info("[%s] STEP 2/4: Analyzing pages with Gemini OCR...", self.book_id)
             await self._update("analyzing", 10)
-            page_analyses: list[PageAnalysis] = []
             all_image_results: dict[tuple[int, int], ImageResult] = {}
 
-            cache_path = Path("data") / "books" / self.book_id / "page_analyses.json"
+            cache_path = _cache_path(self.book_id)
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+
             if cache_path.exists():
                 logger.info("[%s] Cache found at %s — skipping Gemini calls.", self.book_id, cache_path)
                 page_analyses = self._load_cache(cache_path)
                 logger.info("[%s] Loaded %d pages from cache.", self.book_id, len(page_analyses))
-                # Still need image results for structure parser
-                for i, page_info in enumerate(pages_info):
-                    analysis = page_analyses[i] if i < len(page_analyses) else None
+                for page_info in pages_info:
+                    idx = page_info.page_num - 1
+                    analysis = page_analyses[idx] if idx < len(page_analyses) else None
                     if analysis:
                         page_img_results = await self._extract_images(analysis, page_info)
                         all_image_results.update(page_img_results)
             else:
-                cache_path.parent.mkdir(parents=True, exist_ok=True)
-                for i, page_info in enumerate(pages_info):
-                    logger.info(
-                        "[%s] Page %d/%d — calling Gemini...",
-                        self.book_id, page_info.page_num, total,
-                    )
-                    analysis = await self.gemini.analyze_page(
-                        page_info.image_path, page_info.page_num
-                    )
-                    self.gemini_call_count += 1
-                    blocks_count = len(analysis.blocks)
-
-                    # Detect TOC page and extract structured entries
-                    if self._toc is None and self._is_toc_analysis(analysis):
-                        logger.info("[%s] TOC page detected at page %d — extracting...", self.book_id, page_info.page_num)
-                        toc_result = await self.gemini.analyze_toc_page(page_info.image_path, page_info.page_num)
-                        if toc_result:
-                            toc_result.compute_page_ends(total)
-                            self._toc = toc_result
-                            self._save_toc(toc_result)
-                            logger.info("[%s] TOC extracted: %d entries.", self.book_id, len(toc_result.entries))
-
-                    analysis.raw_response = ""  # free memory after processing
-
-                    analysis = await self._apply_mathpix_fallback(
-                        analysis, page_info.image_path
-                    )
-                    page_img_results = await self._extract_images(analysis, page_info)
-                    all_image_results.update(page_img_results)
-
-                    page_analyses.append(analysis)
-                    await self.book_repo.increment_processed_pages(self.book_id)
-
-                    progress = 10 + int((i + 1) / total * 70)
-                    await self._update("analyzing", progress, f"Page {i + 1}/{total}")
-                    logger.info(
-                        "[%s] Page %d/%d done — %d blocks, progress=%d%%",
-                        self.book_id, page_info.page_num, total, blocks_count, progress,
-                    )
-                    # Save checkpoint every 10 pages
-                    if (i + 1) % 10 == 0:
-                        self._save_cache(cache_path, page_analyses)
-                        logger.info("[%s] Checkpoint saved (%d pages).", self.book_id, i + 1)
-
+                page_analyses = await self._run_gemini_batched(
+                    pages_info, total, cache_path, all_image_results
+                )
                 self._save_cache(cache_path, page_analyses)
                 logger.info("[%s] Final cache saved to %s.", self.book_id, cache_path)
+
+            # Build TOC from any pages flagged as TOC (multi-page TOC supported)
+            await self._build_toc(pages_info, page_analyses, total)
 
             logger.info("[%s] STEP 2/4 done: %d pages analyzed.", self.book_id, total)
 
@@ -187,11 +174,179 @@ class ProcessingPipeline:
                 "publisher": book_doc.publisher if book_doc else "",
                 "academic_year": book_doc.academic_year if book_doc else "",
             }
-            meta_path = Path("data") / "books" / self.book_id / "metadata.json"
+            meta_path = _metadata_path(self.book_id)
             meta_path.parent.mkdir(parents=True, exist_ok=True)
             meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception:
             logger.warning("[%s] Failed to save metadata.json", self.book_id, exc_info=True)
+
+    # -----------------------------------------------------------------------
+    # Gemini batching + TOC handling
+    # -----------------------------------------------------------------------
+
+    async def _run_gemini_batched(
+        self,
+        pages_info: list[PageInfo],
+        total: int,
+        cache_path: Path,
+        all_image_results: dict[tuple[int, int], ImageResult],
+    ) -> list[PageAnalysis]:
+        """Analyse all pages with Gemini, batching `_GEMINI_BATCH_SIZE` per round.
+
+        Pages are processed strictly in order so that the resulting
+        `page_analyses` list is index-aligned with `pages_info`. Within each
+        batch the actual Gemini calls run concurrently (the rate limiter caps
+        the global call rate). Mathpix fallback + image extraction run after
+        the batch returns so they can't race each other on shared state.
+        """
+        page_analyses: list[PageAnalysis] = [None] * total  # type: ignore[list-item]
+
+        async def _analyze_one(idx: int, page_info: PageInfo) -> PageAnalysis:
+            return await self.gemini.analyze_page(page_info.image_path, page_info.page_num)
+
+        for start_idx in range(0, total, _GEMINI_BATCH_SIZE):
+            batch = pages_info[start_idx:start_idx + _GEMINI_BATCH_SIZE]
+            tasks = [_analyze_one(start_idx + i, p) for i, p in enumerate(batch)]
+            try:
+                results = await asyncio.gather(*tasks)
+            except Exception:
+                logger.exception(
+                    "[%s] Gemini batch %d-%d failed; saving partial cache and re-raising.",
+                    self.book_id, start_idx + 1, start_idx + len(batch),
+                )
+                # Persist any pages we did manage to produce before the failure
+                completed = [a for a in page_analyses if a is not None]
+                self._save_cache(cache_path, completed)
+                raise
+
+            for offset, (page_info, analysis) in enumerate(zip(batch, results)):
+                self.gemini_call_count += 1
+                analysis = await self._apply_mathpix_fallback(analysis, page_info.image_path)
+                page_img_results = await self._extract_images(analysis, page_info)
+                all_image_results.update(page_img_results)
+                page_analyses[start_idx + offset] = analysis
+                await self.book_repo.increment_processed_pages(self.book_id)
+
+            done_count = start_idx + len(batch)
+            progress = 10 + int(done_count / total * 70)
+            await self._update("analyzing", progress, f"Page {done_count}/{total}")
+            logger.info(
+                "[%s] Batch %d-%d done; progress=%d%%",
+                self.book_id, start_idx + 1, done_count, progress,
+            )
+            # Checkpoint roughly every 10 pages (= every 2 batches at default size 5)
+            if done_count % 10 == 0 or done_count == total:
+                completed = [a for a in page_analyses if a is not None]
+                self._save_cache(cache_path, completed)
+
+        # Drop raw_response to free memory now that we've cached everything.
+        for a in page_analyses:
+            if a is not None:
+                a.raw_response = ""
+        # Filter out any None placeholders defensively (shouldn't happen).
+        return [a for a in page_analyses if a is not None]
+
+    async def _build_toc(
+        self,
+        pages_info: list[PageInfo],
+        page_analyses: list[PageAnalysis],
+        total: int,
+    ) -> None:
+        """Detect ALL TOC pages (TOC may span 2-4 pages), merge entries, and
+        compute the PDF↔SGK printed-page offset.
+
+        Sets self._toc when at least one TOC page yields entries.
+        """
+        toc_pages = [pa for pa in page_analyses if self._is_toc_analysis(pa)]
+        if not toc_pages:
+            logger.info("[%s] No TOC page detected.", self.book_id)
+            return
+
+        # Collect TocAnalysis from each TOC page (consecutive pages typically)
+        toc_pages.sort(key=lambda pa: pa.page_num)
+        merged: Optional[TocAnalysis] = None
+        path_by_page = {p.page_num: p.image_path for p in pages_info}
+
+        for pa in toc_pages:
+            image_path = path_by_page.get(pa.page_num)
+            if not image_path:
+                continue
+            logger.info("[%s] Extracting TOC entries from page %d.", self.book_id, pa.page_num)
+            toc_result = await self.gemini.analyze_toc_page(image_path, pa.page_num)
+            if toc_result is None:
+                continue
+            if merged is None:
+                merged = toc_result
+            else:
+                merged.merge(toc_result)
+                # Use the EARLIEST TOC page's printed page number; that's the
+                # one whose offset is most reliable.
+                if merged.toc_printed_page_num <= 0 and toc_result.toc_printed_page_num > 0:
+                    merged.toc_printed_page_num = toc_result.toc_printed_page_num
+                    merged.toc_page_num = toc_result.toc_page_num
+
+        if merged is None or not merged.entries:
+            logger.warning("[%s] TOC detected but no entries extracted.", self.book_id)
+            return
+
+        merged.pdf_page_offset = self._compute_offset(merged, page_analyses)
+        merged.compute_page_ends(total)
+        self._toc = merged
+        self._save_toc(merged)
+        logger.info(
+            "[%s] TOC built: %d entries, offset=%d (toc_printed=%d).",
+            self.book_id,
+            len(merged.entries),
+            merged.pdf_page_offset,
+            merged.toc_printed_page_num,
+        )
+
+    @staticmethod
+    def _compute_offset(
+        toc: TocAnalysis, page_analyses: list[PageAnalysis]
+    ) -> int:
+        """Determine PDF→SGK page offset.
+
+        Strategy:
+        1. Prefer the offset implied by the printed page number on the TOC
+           page itself (offset_a = toc_pdf_page - toc_printed_page).
+        2. Cross-check by finding the first chapter_title page in the PDF and
+           comparing with the first chapter entry in the TOC
+           (offset_b = first_chapter_pdf - first_chapter_toc.page_start).
+        3. If both available and they disagree by ≤ 2 pages, prefer offset_b
+           (more reliable). If they disagree more, log a warning.
+        4. Fall back to offset_a, then 0.
+        """
+        offset_a: Optional[int] = None
+        if toc.toc_printed_page_num > 0:
+            offset_a = max(toc.toc_page_num - toc.toc_printed_page_num, 0)
+
+        offset_b: Optional[int] = None
+        first_chapter_toc = next(
+            (e for e in sorted(toc.entries, key=lambda e: e.page_start)
+             if e.type == "chapter" and e.page_start > 0),
+            None,
+        )
+        if first_chapter_toc is not None:
+            for pa in page_analyses:
+                if pa.page_num <= toc.toc_page_num:
+                    continue
+                if any(b.type == "chapter_title" for b in pa.blocks):
+                    offset_b = max(pa.page_num - first_chapter_toc.page_start, 0)
+                    break
+
+        if offset_b is not None and offset_a is not None:
+            if abs(offset_b - offset_a) > 2:
+                logger.warning(
+                    "TOC offset mismatch: printed-derived=%d vs chapter-derived=%d. Using chapter-derived.",
+                    offset_a, offset_b,
+                )
+            return offset_b
+        if offset_b is not None:
+            return offset_b
+        if offset_a is not None:
+            return offset_a
+        return 0
 
     def _save_cache(self, path: Path, analyses: list[PageAnalysis]) -> None:
         try:
@@ -231,6 +386,9 @@ class ProcessingPipeline:
                     confidence=b.get("confidence", 1.0),
                     needs_mathpix=b.get("needs_mathpix", False),
                     source=b.get("source", "gemini"),
+                    is_continuation=b.get("is_continuation", False),
+                    is_display_math=b.get("is_display_math", False),
+                    column=b.get("column", 1) or 1,
                 ))
             result.append(PageAnalysis(
                 page_num=item["page_num"],
@@ -246,15 +404,31 @@ class ProcessingPipeline:
     async def _apply_mathpix_fallback(
         self, analysis: PageAnalysis, page_image_path: str
     ) -> PageAnalysis:
-        """Call Mathpix for formula blocks where Gemini had low confidence."""
+        """Call Mathpix for formula blocks where Gemini had low confidence.
+
+        When Mathpix is disabled in config, this is a no-op. When enabled, we
+        only call for blocks that have a usable bbox — otherwise we'd send the
+        whole page to Mathpix and overwrite Gemini's per-formula latex with
+        page-wide OCR garbage.
+        """
+        if not self.mathpix.is_enabled():
+            return analysis
+
         for block in analysis.blocks:
             if block.type != "formula":
                 continue
             needs_fallback = block.needs_mathpix or block.confidence < 0.6
             if not needs_fallback:
                 continue
-            # Use block's image_bbox if available; otherwise use the full page
-            bbox: tuple = block.image_bbox if block.image_bbox else (0.0, 0.0, 1.0, 1.0)
+            # Defense-in-depth: skip when Gemini didn't return a bbox for this
+            # formula. Falling back to the full page produces meaningless LaTeX.
+            bbox = block.image_bbox
+            if not bbox or len(bbox) != 4:
+                logger.debug(
+                    "Skip Mathpix for page %d block %d (no bbox)",
+                    analysis.page_num, block.order,
+                )
+                continue
             result = await self.mathpix.extract_formula(
                 page_image_path,
                 tuple(bbox),
@@ -289,7 +463,14 @@ class ProcessingPipeline:
         return results
 
     async def _save_to_db(self, book_structure: BookStructure) -> None:
-        """Persist the parsed book structure to MongoDB."""
+        """Persist the parsed book structure to MongoDB.
+
+        Also rescues unassigned blocks (no TOC range matched) by parking them
+        in a special ``index=-1`` lesson titled "Phần mở đầu" of the first
+        chapter — otherwise they'd be silently dropped. After save, validates
+        the lesson count against the TOC and logs a warning when the diff
+        exceeds 5%.
+        """
         await self._cleanup_old_db_data()
 
         # Deduplicate chapters by index: when the same chapter_index appears
@@ -299,13 +480,36 @@ class ProcessingPipeline:
         for chapter in book_structure.chapters:
             if chapter.index not in seen or len(chapter.lessons) > len(seen[chapter.index].lessons):  # type: ignore[attr-defined]
                 seen[chapter.index] = chapter
-        deduped_chapters = sorted(seen.values(), key=lambda c: c.index)  # type: ignore[arg-type]
+        deduped_chapters: list[Chapter] = sorted(seen.values(), key=lambda c: c.index)  # type: ignore[arg-type]
         if len(deduped_chapters) < len(book_structure.chapters):
             logger.warning(
                 "[%s] Deduplicated %d → %d chapters (duplicate indices removed).",
                 self.book_id, len(book_structure.chapters), len(deduped_chapters),
             )
 
+        # Inject unassigned blocks as a synthetic "Phần mở đầu" lesson on the
+        # first chapter so they're queryable instead of vanishing.
+        if book_structure.unassigned_blocks:
+            if not deduped_chapters:
+                deduped_chapters = [
+                    Chapter(index=0, roman_index="", title="Phần mở đầu", page_start=1)
+                ]
+            target_ch = deduped_chapters[0]
+            special_lesson = Lesson(
+                index=-1,
+                title="Phần mở đầu",
+                page_start=max(target_ch.page_start, 1),
+                content_blocks=list(book_structure.unassigned_blocks),
+            )
+            target_ch.lessons.insert(0, special_lesson)
+            logger.info(
+                "[%s] Persisting %d unassigned blocks into chapter %d as 'Phần mở đầu' lesson.",
+                self.book_id,
+                len(book_structure.unassigned_blocks),
+                target_ch.index,
+            )
+
+        saved_lesson_count = 0  # excludes the synthetic index=-1 rescue lesson
         for chapter in deduped_chapters:
             ch_id = await chapter_repository.create(
                 ChapterCreate(
@@ -321,7 +525,7 @@ class ProcessingPipeline:
             for lesson in chapter.lessons:
                 if lesson.index not in seen_lessons or len(lesson.content_blocks) > len(seen_lessons[lesson.index].content_blocks):  # type: ignore[attr-defined]
                     seen_lessons[lesson.index] = lesson
-            deduped_lessons = sorted(seen_lessons.values(), key=lambda l: l.index)  # type: ignore[arg-type]
+            deduped_lessons: list[Lesson] = sorted(seen_lessons.values(), key=lambda l: l.index)  # type: ignore[arg-type]
             if len(deduped_lessons) < len(chapter.lessons):
                 logger.warning(
                     "[%s] Chapter %d: deduplicated %d → %d lessons.",
@@ -336,6 +540,8 @@ class ProcessingPipeline:
                         page_start=lesson.page_start,
                     )
                 )
+                if lesson.index >= 0:
+                    saved_lesson_count += 1
                 content_docs = [
                     ContentBlockCreate(
                         lesson_id=les_id,
@@ -356,6 +562,29 @@ class ProcessingPipeline:
                 if content_docs:
                     await content_repository.bulk_create(content_docs)
 
+        self._validate_saved_lesson_count(saved_lesson_count)
+
+    def _validate_saved_lesson_count(self, saved_lesson_count: int) -> None:
+        """Cross-check saved lesson count vs TOC entries (warn when off >5%)."""
+        if self._toc is None:
+            return
+        expected = sum(
+            1 for e in self._toc.entries if e.type in ("lesson", "section")
+        )
+        if expected <= 0:
+            return
+        ratio = saved_lesson_count / expected
+        if ratio < 0.95:
+            logger.warning(
+                "[%s] Lesson coverage low: TOC has %d lesson/section entries but only %d saved (%.1f%%). Check unassigned blocks and TOC offset.",
+                self.book_id, expected, saved_lesson_count, ratio * 100,
+            )
+        else:
+            logger.info(
+                "[%s] Lesson coverage OK: TOC=%d, saved=%d (%.1f%%).",
+                self.book_id, expected, saved_lesson_count, ratio * 100,
+            )
+
     @staticmethod
     def _is_toc_analysis(analysis: PageAnalysis) -> bool:
         """Return True if the page analysis looks like a TOC page."""
@@ -370,12 +599,14 @@ class ProcessingPipeline:
         return "MỤC LỤC" in first_content
 
     def _save_toc(self, toc: TocAnalysis) -> None:
-        """Persist extracted TOC to data/books/<id>/toc.json for inspection."""
+        """Persist extracted TOC for debugging/inspection."""
         try:
-            toc_path = Path("data") / "books" / self.book_id / "toc.json"
+            toc_path = _toc_path(self.book_id)
             toc_path.parent.mkdir(parents=True, exist_ok=True)
             data = {
                 "toc_page_num": toc.toc_page_num,
+                "toc_printed_page_num": toc.toc_printed_page_num,
+                "pdf_page_offset": toc.pdf_page_offset,
                 "entries": [
                     {
                         "type": e.type,
@@ -437,7 +668,7 @@ class ProcessingPipeline:
                     )
                 data.append(chapter_data)
 
-            debug_path = Path("data") / "books" / self.book_id / "structure_debug.json"
+            debug_path = _structure_debug_path(self.book_id)
             debug_path.parent.mkdir(parents=True, exist_ok=True)
             debug_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
             logger.info("[%s] Structure debug JSON saved → %s", self.book_id, debug_path)
@@ -489,7 +720,7 @@ async def reprocess_from_cache(book_id: str, manual_meta: dict | None = None) ->
     """
     logger.info("[%s] reprocess_from_cache: starting...", book_id)
     try:
-        cache_path = Path("data") / "books" / book_id / "page_analyses.json"
+        cache_path = _cache_path(book_id)
         if not cache_path.exists():
             logger.error("[%s] reprocess: cache not found at %s", book_id, cache_path)
             return
@@ -497,7 +728,7 @@ async def reprocess_from_cache(book_id: str, manual_meta: dict | None = None) ->
         # Ensure book record exists in MongoDB
         book_doc = await book_repository.get_by_id(book_id)
         if book_doc is None:
-            meta_path = Path("data") / "books" / book_id / "metadata.json"
+            meta_path = _metadata_path(book_id)
             if meta_path.exists():
                 meta = json.loads(meta_path.read_text(encoding="utf-8"))
             elif manual_meta and (manual_meta.get("title") or manual_meta.get("grade")):
@@ -546,7 +777,7 @@ async def reprocess_from_cache(book_id: str, manual_meta: dict | None = None) ->
 
         # Load TOC from toc.json so structure parser uses TOC-based path
         toc_analysis: TocAnalysis | None = None
-        toc_path = Path("data") / "books" / book_id / "toc.json"
+        toc_path = _toc_path(book_id)
         if toc_path.exists():
             try:
                 toc_data = json.loads(toc_path.read_text(encoding="utf-8"))
@@ -554,10 +785,13 @@ async def reprocess_from_cache(book_id: str, manual_meta: dict | None = None) ->
                 toc_analysis = TocAnalysis(
                     entries=entries,
                     toc_page_num=toc_data.get("toc_page_num", 0),
+                    toc_printed_page_num=toc_data.get("toc_printed_page_num", 0),
+                    pdf_page_offset=toc_data.get("pdf_page_offset", 0),
                 )
+                pipeline._toc = toc_analysis
                 logger.info(
-                    "[%s] reprocess: loaded TOC with %d entries from toc.json.",
-                    book_id, len(entries),
+                    "[%s] reprocess: loaded TOC with %d entries (offset=%d).",
+                    book_id, len(entries), toc_analysis.pdf_page_offset,
                 )
             except Exception:
                 logger.warning(
