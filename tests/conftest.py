@@ -370,6 +370,10 @@ async def client():
         idx = min(page_num - 1, len(pages) - 1)
         return pages[idx]
 
+    async def _fake_analyze_toc(image_path: str, page_num: int):
+        # Test PDF has no TOC page — return None so pipeline uses inline parsing
+        return None
+
     def _fake_extract(
         page_image_path, bbox_relative, book_id, page_num, fig_index, caption=""
     ):
@@ -387,6 +391,7 @@ async def client():
     # ---- assemble patches and yield the client ----------------------------
     with (
         patch.object(GeminiOCRService, "analyze_page", AsyncMock(side_effect=_fake_analyze)),
+        patch.object(GeminiOCRService, "analyze_toc_page", AsyncMock(side_effect=_fake_analyze_toc)),
         patch.object(ImageExtractor, "extract_and_store", MagicMock(side_effect=_fake_extract)),
         # controllers
         patch("app.controllers.book_controller.book_repository", book_mock),

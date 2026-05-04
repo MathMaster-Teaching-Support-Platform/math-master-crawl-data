@@ -28,6 +28,13 @@ def validate_pdf(file_path: str) -> bool:
         return False
 
 
+_RENDER_DPI = 200          # bumped from 150 — small glyphs (subscript, ∂, ∈) need it
+_JPEG_QUALITY = 90
+_MAX_FILE_KB = 350         # only resize if file is bigger than this
+_RESIZE_SCALE = 0.9        # gentler than the old 0.8
+_RESIZE_QUALITY = 85
+
+
 def render_pages(pdf_path: str, output_dir: str) -> list[PageInfo]:
     """
     Render every page of *pdf_path* to JPEG and return a list of PageInfo.
@@ -35,10 +42,12 @@ def render_pages(pdf_path: str, output_dir: str) -> list[PageInfo]:
     Images are saved as:
         <output_dir>/pages/page_001.jpg, page_002.jpg, ...
 
-    Strategy:
-    - 150 DPI (sufficient for OCR per Mathpix best-practices)
-    - JPEG quality=85
-    - Convert to grayscale when the page contains no significant colour
+    Strategy (revised):
+    - 200 DPI — needed for small math glyphs and exercise numbering.
+    - JPEG quality=90, optimize=True. Color preserved (Gemini relies on
+      page colour cues for definition/example boxes — never grayscale).
+    - Only down-scale to 90% if the file exceeds 350 KB; never recompress
+      twice (single resize pass).
     """
     pages_dir = os.path.join(output_dir, "pages")
     os.makedirs(pages_dir, exist_ok=True)
@@ -46,34 +55,27 @@ def render_pages(pdf_path: str, output_dir: str) -> list[PageInfo]:
     results: list[PageInfo] = []
 
     with fitz.open(pdf_path) as doc:
-        mat = fitz.Matrix(120 / 72, 120 / 72)  # 120 DPI — smaller than 150
+        mat = fitz.Matrix(_RENDER_DPI / 72, _RENDER_DPI / 72)
 
         for page in doc:
             page_num = page.number + 1  # 1-based
 
-            # Render to pixmap (RGB)
             pix = page.get_pixmap(matrix=mat, alpha=False)
             pil_img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-
-            # Decide grayscale: if all pixels are near-neutral, convert
-            is_grayscale = _is_effectively_grayscale(pil_img)
-            if is_grayscale:
-                pil_img = pil_img.convert("L").convert("RGB")  # keep 3-ch JPEG
 
             filename = f"page_{page_num:03d}.jpg"
             image_path = os.path.join(pages_dir, filename)
 
-            pil_img.save(image_path, format="JPEG", quality=70, optimize=True)
+            pil_img.save(image_path, format="JPEG", quality=_JPEG_QUALITY, optimize=True)
 
             size_kb = os.path.getsize(image_path) / 1024
-            if size_kb > 150:
-                # Resize to 80% and re-save with lower quality
-                new_w = int(pil_img.width * 0.8)
-                new_h = int(pil_img.height * 0.8)
+            if size_kb > _MAX_FILE_KB:
+                new_w = int(pil_img.width * _RESIZE_SCALE)
+                new_h = int(pil_img.height * _RESIZE_SCALE)
                 pil_img = pil_img.resize((new_w, new_h), Image.LANCZOS)
-                pil_img.save(image_path, format="JPEG", quality=65, optimize=True)
+                pil_img.save(image_path, format="JPEG", quality=_RESIZE_QUALITY, optimize=True)
                 size_kb = os.path.getsize(image_path) / 1024
-                logger.debug("Page %d resized: %.1f KB", page_num, size_kb)
+                logger.debug("Page %d resized to 90%%: %.1f KB", page_num, size_kb)
 
             results.append(
                 PageInfo(
@@ -82,7 +84,7 @@ def render_pages(pdf_path: str, output_dir: str) -> list[PageInfo]:
                     file_size_kb=round(size_kb, 2),
                     width=pil_img.width,
                     height=pil_img.height,
-                    is_grayscale=is_grayscale,
+                    is_grayscale=False,
                 )
             )
 
@@ -123,30 +125,4 @@ def check_image_size(image_path: str) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _is_effectively_grayscale(img: Image.Image, threshold: float = 10.0) -> bool:
-    """
-    Return True when the average per-pixel colour saturation is below
-    *threshold* (0-255 scale), meaning the page has no meaningful colour.
-    """
-    try:
-        import numpy as np  # optional fast path
-
-        arr = np.array(img, dtype=float)
-        r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
-        # max channel deviation from mean as a proxy for saturation
-        mean = (r + g + b) / 3
-        deviation = (
-            np.abs(r - mean) + np.abs(g - mean) + np.abs(b - mean)
-        ).mean()
-        return float(deviation) < threshold
-    except ImportError:
-        # Fallback: convert to HSV via PIL and check saturation channel
-        hsv = img.convert("HSV")
-        s_channel = list(hsv.getdata(band=1))
-        avg_saturation = sum(s_channel) / len(s_channel)
-        return avg_saturation < threshold
 

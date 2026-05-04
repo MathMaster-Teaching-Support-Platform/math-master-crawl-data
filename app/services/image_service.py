@@ -3,7 +3,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageChops, ImageOps
 
 from app.core.config import settings
 
@@ -156,16 +156,34 @@ class ImageExtractor:
 
     @staticmethod
     def _cleanup_figure(image: Image.Image) -> Image.Image:
-        """Auto-crop whitespace around the figure without resizing."""
-        # Convert to grayscale for bbox detection, then crop original
-        gray = image.convert("L")
-        # Invert so that non-white pixels become bright (getbbox finds non-zero)
-        inverted = ImageOps.invert(gray)
-        bbox = inverted.getbbox()
+        """Auto-crop pure-white margins while preserving colored fills.
+
+        Naive grayscale-invert trimming throws away the pastel yellow/blue
+        backgrounds SGK uses for định-nghĩa / ví-dụ boxes (light colors have
+        near-white luminance). We OR a luminance mask with an HSV saturation
+        mask so any pixel that's either dark or colored counts as content,
+        then add a small padding so the colored border isn't shaved off.
+        """
+        rgb = image.convert("RGB")
+        luma_inv = ImageOps.invert(rgb.convert("L"))
+        sat = rgb.convert("HSV").split()[1]
+
+        luma_mask = luma_inv.point(lambda v: 255 if v > 25 else 0)
+        sat_mask = sat.point(lambda v: 255 if v > 30 else 0)
+        combined = ImageChops.lighter(luma_mask, sat_mask)
+
+        bbox = combined.getbbox()
         if bbox is None:
-            # Completely white — return as-is
             return image
-        return image.crop(bbox)
+
+        w, h = image.size
+        pad_x = max(2, int(w * 0.02))
+        pad_y = max(2, int(h * 0.02))
+        x1 = max(0, bbox[0] - pad_x)
+        y1 = max(0, bbox[1] - pad_y)
+        x2 = min(w, bbox[2] + pad_x)
+        y2 = min(h, bbox[3] + pad_y)
+        return image.crop((x1, y1, x2, y2))
 
     @staticmethod
     def _skip_if_too_small(bbox_px: tuple[int, int, int, int]) -> bool:
