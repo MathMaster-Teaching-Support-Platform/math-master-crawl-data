@@ -10,7 +10,7 @@ from app.utils.response import success_response
 router = APIRouter(prefix="/search", tags=["search"])
 
 
-@router.get("/")
+@router.get("")
 async def search(
     q: str = Query(..., min_length=1, description="Search keyword"),
     grade: Optional[int] = Query(default=None, ge=1, le=12),

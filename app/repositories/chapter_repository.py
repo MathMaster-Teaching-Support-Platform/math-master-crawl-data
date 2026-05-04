@@ -39,5 +39,18 @@ class ChapterRepository:
         result = await self.collection.delete_one({"_id": ObjectId(chapter_id)})
         return result.deleted_count == 1
 
+    async def count_by_book_ids(self, book_ids: list[str]) -> dict[str, int]:
+        """Return {book_id: chapter_count} for all given book_ids in one query."""
+        if not book_ids:
+            return {}
+        pipeline = [
+            {"$match": {"book_id": {"$in": book_ids}}},
+            {"$group": {"_id": "$book_id", "count": {"$sum": 1}}},
+        ]
+        result: dict[str, int] = {}
+        async for doc in self.collection.aggregate(pipeline):
+            result[doc["_id"]] = doc["count"]
+        return result
+
 
 chapter_repository = ChapterRepository()

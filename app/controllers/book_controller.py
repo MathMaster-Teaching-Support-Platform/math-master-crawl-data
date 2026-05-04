@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.repositories.book_repository import book_repository
 from app.repositories.chapter_repository import chapter_repository
 from app.repositories.content_repository import content_repository
+from app.repositories.history_repository import history_repository
 from app.repositories.lesson_repository import lesson_repository
 from app.schemas.book import BookCreate, BookDB
 from app.services.processing_pipeline import run_pipeline, reprocess_from_cache
@@ -33,7 +34,10 @@ class BookSummary(BaseModel):
     progress: int
     total_pages: int
     processed_pages: int
+    chapter_count: int = 0
+    lesson_count: int = 0
     created_at: str
+    thumbnail_url: str = ""
 
 
 class BookDetail(BookSummary):
@@ -65,6 +69,7 @@ def _to_summary(book: BookDB) -> BookSummary:
         total_pages=book.total_pages,
         processed_pages=book.processed_pages,
         created_at=book.created_at.isoformat(),
+        thumbnail_url=getattr(book, "thumbnail_url", ""),
     )
 
 
@@ -151,11 +156,49 @@ async def upload_book(
     )
 
 
-@router.get("/")
+@router.get("")
 async def list_books(grade: Optional[int] = None, status: Optional[str] = None):
-    """List all books, optionally filtered by grade and/or status."""
+    """List all books with chapter/lesson counts, optionally filtered."""
     books = await book_repository.list_all(grade=grade, status=status)
-    return success_response(data=[_to_summary(b) for b in books])
+    if not books:
+        return success_response(data=[])
+
+    book_ids = [b.id for b in books]
+
+    # Parallel count queries
+    chapter_counts = await chapter_repository.count_by_book_ids(book_ids)
+
+    # For lesson counts, group by book_id using chapter mapping
+    all_chapters = []
+    for bid in book_ids:
+        chaps = await chapter_repository.list_by_book(bid)
+        all_chapters.extend(chaps)
+
+    # chapter_id -> book_id mapping
+    chap_to_book: dict[str, str] = {c.id: c.book_id for c in all_chapters}
+    chapter_ids = [c.id for c in all_chapters]
+    lesson_by_chapter: dict[str, int] = {}
+    if chapter_ids:
+        pipeline = [
+            {"$match": {"chapter_id": {"$in": chapter_ids}}},
+            {"$group": {"_id": "$chapter_id", "count": {"$sum": 1}}},
+        ]
+        async for doc in lesson_repository.collection.aggregate(pipeline):
+            lesson_by_chapter[doc["_id"]] = doc["count"]
+
+    lesson_counts: dict[str, int] = {}
+    for cid, cnt in lesson_by_chapter.items():
+        bid = chap_to_book.get(cid, "")
+        if bid:
+            lesson_counts[bid] = lesson_counts.get(bid, 0) + cnt
+
+    result = []
+    for b in books:
+        s = _to_summary(b)
+        s.chapter_count = chapter_counts.get(b.id, 0)
+        s.lesson_count = lesson_counts.get(b.id, 0)
+        result.append(s)
+    return success_response(data=result)
 
 
 @router.get("/{book_id}/status")
@@ -341,6 +384,49 @@ async def export_book_chunks(book_id: str):
     return success_response(data=chunks)
 
 
+@router.get("/{book_id}/history")
+async def get_book_history(book_id: str):
+    """Return all change history for a book (chapters + lessons + content)."""
+    entries = await history_repository.list_by_book(book_id)
+    return success_response(data=[e.model_dump() for e in entries])
+
+
+@router.post("/{book_id}/thumbnail")
+async def upload_book_thumbnail(book_id: str, file: UploadFile = File(...)):
+    """Upload a cover image for a book. Accepts JPEG, PNG, or WebP."""
+    book = await book_repository.get_by_id(book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail="Book not found.")
+
+    allowed_types = {"image/jpeg", "image/png", "image/webp"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, or WebP images are accepted.")
+
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Image exceeds 10 MB limit.")
+
+    ext = (file.filename or "thumb.jpg").rsplit(".", 1)[-1].lower()
+    if ext not in ("jpg", "jpeg", "png", "webp"):
+        ext = "jpg"
+
+    thumb_dir = os.path.join(settings.storage_path, "thumbnails")
+    os.makedirs(thumb_dir, exist_ok=True)
+    filename = f"{book_id}.{ext}"
+    with open(os.path.join(thumb_dir, filename), "wb") as f:
+        f.write(contents)
+
+    thumbnail_url = f"/static/thumbnails/{filename}"
+
+    from bson import ObjectId
+    from datetime import datetime, timezone
+    await book_repository.collection.update_one(
+        {"_id": ObjectId(book_id)},
+        {"$set": {"thumbnail_url": thumbnail_url, "updated_at": datetime.now(timezone.utc)}},
+    )
+    return success_response(data={"thumbnail_url": thumbnail_url})
+
+
 @router.get("/{book_id}")
 async def get_book(book_id: str):
     """Return full book detail including stats."""
@@ -373,6 +459,41 @@ async def delete_book(book_id: str):
         shutil.rmtree(book_storage_dir, ignore_errors=True)
 
     return success_response(data={"deleted": book_id}, message="Book deleted.")
+
+
+class BookUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    grade: Optional[int] = None
+    publisher: Optional[str] = None
+    academic_year: Optional[str] = None
+
+
+@router.patch("/{book_id}")
+async def update_book(book_id: str, body: BookUpdateRequest):
+    """Update editable metadata of a book (title, grade, publisher, academic_year)."""
+    from datetime import datetime, timezone
+    book = await book_repository.get_by_id(book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail="Book not found.")
+    fields: dict = {}
+    if body.title is not None:
+        fields["title"] = body.title.strip()
+    if body.grade is not None:
+        if not (1 <= body.grade <= 12):
+            raise HTTPException(status_code=422, detail="grade must be between 1 and 12.")
+        fields["grade"] = body.grade
+    if body.publisher is not None:
+        fields["publisher"] = body.publisher.strip()
+    if body.academic_year is not None:
+        fields["academic_year"] = body.academic_year.strip()
+    if not fields:
+        raise HTTPException(status_code=422, detail="No updatable fields provided.")
+    fields["updated_at"] = datetime.now(timezone.utc)
+    await book_repository.collection.update_one(
+        {"_id": __import__("bson").ObjectId(book_id)}, {"$set": fields}
+    )
+    updated = await book_repository.get_by_id(book_id)
+    return success_response(data=_to_summary(updated), message="Book updated.")
 
 
 @router.post("/{book_id}/reprocess")

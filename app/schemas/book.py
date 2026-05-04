@@ -25,3 +25,4 @@ class BookDB(BookCreate):
     updated_at: datetime
     gemini_calls: int = 0
     mathpix_calls: int = 0
+    thumbnail_url: str = ""

@@ -8,6 +8,8 @@ class ChapterCreate(BaseModel):
     roman_index: str = ""
     title: str
     page_start: int = 0
+    updated_at: Optional[str] = None
+    updated_by: Optional[str] = None
 
 
 class ChapterDB(ChapterCreate):
