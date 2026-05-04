@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # Internal API Key (shared with BE to prevent direct access)
+    internal_api_key: Optional[str] = "change-me-in-production"
+
     # SGK PDF Processing
     storage_path: str = "./storage"
     gemini_api_key: Optional[str] = None

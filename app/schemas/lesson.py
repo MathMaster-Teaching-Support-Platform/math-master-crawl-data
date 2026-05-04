@@ -7,6 +7,8 @@ class LessonCreate(BaseModel):
     lesson_index: int
     title: str
     page_start: int = 0
+    updated_at: Optional[str] = None
+    updated_by: Optional[str] = None
 
 
 class LessonDB(LessonCreate):

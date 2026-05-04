@@ -54,5 +54,11 @@ class LessonRepository:
             ids.append(str(doc["_id"]))
         return ids
 
+    async def count_by_book_chapters(self, chapter_ids: list[str]) -> int:
+        """Count total lessons across given chapter IDs."""
+        if not chapter_ids:
+            return 0
+        return await self.collection.count_documents({"chapter_id": {"$in": chapter_ids}})
+
 
 lesson_repository = LessonRepository()

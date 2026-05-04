@@ -175,6 +175,7 @@ SECRET_KEY=your-secret-key
 | `API_PREFIX`         | `/api/v1`                   | Tiền tố cho tất cả các API route           |
 | `CHAT_HISTORY_LIMIT` | `30`                        | Số lượt hội thoại tối đa giữ trong context |
 | `SECRET_KEY`         | `your-secret-key`           | Secret key cho ứng dụng                    |
+| `INTERNAL_API_KEY`   | `change-me-in-production`   | Shared secret với Spring Boot BE — service từ chối mọi request không có header `X-Internal-API-Key` khớp giá trị này. **Đổi trước khi deploy.** |
 
 ---
 
@@ -231,7 +232,7 @@ Health check: `http://localhost:8001/health`
 
 ```bash
 # 1. Upload PDF
-BOOK_ID=$(curl -s -X POST http://localhost:8000/api/v1/books/upload \
+BOOK_ID=$(curl -s -X POST http://localhost:8001/api/v1/books/upload \
   -F "file=@toan8.pdf" \
   -F "grade=8" \
   -F "publisher=CTST" \
@@ -241,7 +242,7 @@ echo "Book ID: $BOOK_ID"
 
 # 2. Polling trạng thái xử lý
 while true; do
-  RESP=$(curl -s "http://localhost:8000/api/v1/books/$BOOK_ID/status")
+  RESP=$(curl -s "http://localhost:8001/api/v1/books/$BOOK_ID/status")
   echo "$RESP" | python -c "import sys,json; d=json.load(sys.stdin); print(f\"[{d['current_phase']}] {d['progress']}%\")"
   STATUS=$(echo "$RESP" | python -c "import sys,json; print(json.load(sys.stdin)['status'])")
   if [ "$STATUS" = "done" ] || [ "$STATUS" = "error" ]; then break; fi
@@ -249,16 +250,16 @@ while true; do
 done
 
 # 3. Lấy danh sách chương
-curl "http://localhost:8000/api/v1/books/$BOOK_ID/chapters" | python -m json.tool
+curl "http://localhost:8001/api/v1/books/$BOOK_ID/chapters" | python -m json.tool
 
 # 4. Export Markdown
-curl "http://localhost:8000/api/v1/books/$BOOK_ID/export/md" > toan8.md
+curl "http://localhost:8001/api/v1/books/$BOOK_ID/export/md" > toan8.md
 
 # 5. Export RAG chunks
-curl "http://localhost:8000/api/v1/books/$BOOK_ID/export/chunks" > chunks.json
+curl "http://localhost:8001/api/v1/books/$BOOK_ID/export/chunks" > chunks.json
 
 # 6. Tìm kiếm
-curl "http://localhost:8000/api/v1/search?q=số+hữu+tỉ&grade=8" | python -m json.tool
+curl "http://localhost:8001/api/v1/search?q=số+hữu+tỉ&grade=8" | python -m json.tool
 ```
 
 ---
@@ -368,6 +369,64 @@ self.client = openai.AsyncOpenAI(
 - **Knowledge base chatbot:** cập nhật `app/data/knowledge_base.json`
 - **Giới hạn context:** thay đổi `CHAT_HISTORY_LIMIT` trong `.env`
 - **DPI render:** thay đổi `RENDER_DPI` (150–200) trong `app/services/pdf_parser.py`
+
+---
+
+## Tích hợp với Math Master BE
+
+Dịch vụ này **không được truy cập trực tiếp từ frontend**. Mọi request phải đi qua Spring Boot BE (port 8080) đóng vai proxy.
+
+### Kiến trúc
+
+```
+Frontend (React)  →  Spring Boot BE :8080  →  Python crawl-data :8001
+                      (kiểm tra JWT +         (kiểm tra X-Internal-API-Key)
+                       role ADMIN)
+```
+
+### Cơ chế bảo vệ 2 lớp
+
+| Lớp | Nơi thực thi | Điều kiện từ chối |
+|-----|-------------|------------------|
+| 1 | Spring Boot `SecurityConfig` | Request không có JWT hợp lệ hoặc không có role `ADMIN` → 403 |
+| 2 | Python `require_internal_api_key` middleware | Header `X-Internal-API-Key` thiếu hoặc sai → 403 |
+
+### Cấu hình
+
+**BE** (file `.env` tại `math-master/`):
+```env
+CRAWL_DATA_BASE_URL=http://localhost:8001
+CRAWL_DATA_INTERNAL_API_KEY=<strong-random-secret>
+```
+
+**Python service** (file `.env` tại `math-master-crawl-data/`):
+```env
+INTERNAL_API_KEY=<same-strong-random-secret>
+```
+
+> Hai giá trị phải **khớp nhau**. Không để mặc định `change-me-in-production` khi deploy.
+
+### Gọi API từ FE (qua BE proxy)
+
+Các endpoint Python được ánh xạ sang prefix `/api/v1/crawl-data/...` trên BE:
+
+```bash
+# Yêu cầu: Authorization: Bearer <ADMIN JWT>
+
+# Danh sách sách
+GET  /api/v1/crawl-data/books
+
+# Upload PDF SGK
+POST /api/v1/crawl-data/books/upload
+
+# Chat
+POST /api/v1/crawl-data/chat/message
+
+# Full-text search
+GET  /api/v1/crawl-data/search?q=...
+```
+
+Swagger của BE (`http://localhost:8080/swagger-ui/index.html`) liệt kê đầy đủ tất cả endpoint crawl-data với mô tả chi tiết.
 
 ---
 
