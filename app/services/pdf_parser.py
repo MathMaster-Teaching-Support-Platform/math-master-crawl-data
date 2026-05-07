@@ -35,7 +35,12 @@ _RESIZE_SCALE = 0.9        # gentler than the old 0.8
 _RESIZE_QUALITY = 85
 
 
-def render_pages(pdf_path: str, output_dir: str) -> list[PageInfo]:
+def render_pages(
+    pdf_path: str,
+    output_dir: str,
+    page_from: int | None = None,
+    page_to: int | None = None,
+) -> list[PageInfo]:
     """
     Render every page of *pdf_path* to JPEG and return a list of PageInfo.
 
@@ -56,9 +61,14 @@ def render_pages(pdf_path: str, output_dir: str) -> list[PageInfo]:
 
     with fitz.open(pdf_path) as doc:
         mat = fitz.Matrix(_RENDER_DPI / 72, _RENDER_DPI / 72)
+        # 1-based inclusive window; defaults render the whole PDF.
+        first = max(1, page_from) if page_from is not None else 1
+        last = min(doc.page_count, page_to) if page_to is not None else doc.page_count
 
         for page in doc:
             page_num = page.number + 1  # 1-based
+            if page_num < first or page_num > last:
+                continue
 
             pix = page.get_pixmap(matrix=mat, alpha=False)
             pil_img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
