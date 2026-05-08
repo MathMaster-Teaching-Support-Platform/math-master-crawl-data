@@ -16,7 +16,7 @@ from app.core.mongo import mongo_db
 class BookOcrState(BaseModel):
     """Mongo's view of a book — purely OCR pipeline state."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     id: str = Field(alias="_id")
     status: str = "pending"  # pending | processing | done | error
@@ -32,6 +32,7 @@ class BookOcrState(BaseModel):
     mathpix_calls: int = 0
     created_at: datetime
     updated_at: datetime
+    cancel_requested: bool = False
 
 
 class BookRepository:
@@ -61,6 +62,7 @@ class BookRepository:
                     "ocr_page_from": ocr_page_from,
                     "ocr_page_to": ocr_page_to,
                     "error_message": "",
+                    "cancel_requested": False,
                     "updated_at": now,
                 },
                 "$setOnInsert": {
@@ -130,6 +132,25 @@ class BookRepository:
     async def delete(self, book_id: str) -> bool:
         result = await self.collection.delete_one({"_id": book_id})
         return result.deleted_count == 1
+
+    async def request_cancel(self, book_id: str) -> bool:
+        """Signal the running pipeline to stop cooperatively between batches."""
+        now = datetime.now(timezone.utc)
+        result = await self.collection.update_one(
+            {"_id": book_id},
+            {"$set": {"cancel_requested": True, "updated_at": now}},
+        )
+        return result.matched_count > 0
+
+    async def is_cancel_requested(self, book_id: str) -> bool:
+        doc = await self.collection.find_one({"_id": book_id}, {"cancel_requested": 1})
+        return bool(doc and doc.get("cancel_requested"))
+
+    async def clear_cancel_requested(self, book_id: str) -> None:
+        await self.collection.update_one(
+            {"_id": book_id},
+            {"$set": {"cancel_requested": False, "updated_at": datetime.now(timezone.utc)}},
+        )
 
 
 book_repository = BookRepository()

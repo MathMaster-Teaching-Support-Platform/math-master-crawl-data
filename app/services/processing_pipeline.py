@@ -39,13 +39,32 @@ from app.services.gemini_service import (
 )
 from app.services.image_service import ImageExtractor, ImageResult
 from app.services.mathpix_service import MathpixService
+from app.services.minio_fetch import download_template_bucket_object, minio_download_configured
 from app.services.pdf_parser import PageInfo, render_pages
 
 logger = logging.getLogger(__name__)
 
 
+class OcrCancelled(Exception):
+    """Raised when an admin requests POST /books/{id}/ocr-cancel during a run."""
+
+    pass
+
+
 _KEEP_PAGE_IMAGES: bool = os.getenv("KEEP_PAGE_IMAGES", "false").lower() == "true"
 _GEMINI_BATCH_SIZE: int = int(os.getenv("GEMINI_BATCH_SIZE", "5"))
+
+
+def _pdf_ref_for_log(pdf_path: str) -> str:
+    """Short string for logs (truncate presigned query strings)."""
+    parsed = urlparse(pdf_path)
+    if parsed.scheme in ("http", "https"):
+        q = parsed.query
+        if len(q) > 48:
+            q = q[:48] + "…"
+        suffix = f"?{q}" if q else ""
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}{suffix}"
+    return pdf_path
 
 
 @dataclass(frozen=True)
@@ -139,7 +158,17 @@ class MappingPipeline:
 
     async def run(self) -> None:
         try:
+            uniq_lessons = len({m.lesson_id for m in self.mappings})
+            logger.info(
+                "[%s] OCR pipeline start | PDF pages %s–%s | mapped_lessons=%d | pdf_ref=%s",
+                self.book_id,
+                self.ocr_page_from,
+                self.ocr_page_to,
+                uniq_lessons,
+                _pdf_ref_for_log(self.pdf_path),
+            )
             await self._update("ingesting", 5)
+            await self._abort_if_cancelled()
             self._local_pdf = await self._materialize_pdf(self.pdf_path)
 
             output_dir = str(_book_data_dir(self.book_id))
@@ -149,6 +178,7 @@ class MappingPipeline:
                 "[%s] STEP 1/3: Rendering PDF pages %d–%d…",
                 self.book_id, self.ocr_page_from, self.ocr_page_to,
             )
+            await self._abort_if_cancelled()
             pages_info: list[PageInfo] = render_pages(
                 self._local_pdf,
                 output_dir,
@@ -166,6 +196,7 @@ class MappingPipeline:
                 await self._update_done()
                 return
 
+            await self._abort_if_cancelled()
             # Drop pages from a previous OCR run for the lessons we're about
             # to (re-)process. This keeps the collection consistent when an
             # admin remaps pages and re-triggers OCR.
@@ -176,6 +207,7 @@ class MappingPipeline:
             page_analyses, image_results = await self._run_gemini_batched(pages_info, total)
             logger.info("[%s] STEP 2/3 done: %d pages analyzed.", self.book_id, total)
 
+            await self._abort_if_cancelled()
             logger.info("[%s] STEP 3/3: Persisting lesson_pages…", self.book_id)
             await self._update("saving", 90)
             await self._persist_pages(pages_info, page_analyses, image_results)
@@ -186,6 +218,15 @@ class MappingPipeline:
                 self.book_id, self.gemini_call_count, self.mathpix_call_count,
             )
 
+        except OcrCancelled:
+            logger.info("[%s] OCR cancelled by user.", self.book_id)
+        except FileNotFoundError as e:
+            err = str(e)
+            logger.error("[%s] PDF missing / unreachable: %s", self.book_id, err)
+            try:
+                await book_repository.update_status(self.book_id, "error", error=err[:800])
+            except Exception:
+                pass
         except Exception:
             logger.exception("Pipeline failed for book_id=%s", self.book_id)
             try:
@@ -202,22 +243,56 @@ class MappingPipeline:
     # ------------------------------------------------------------------
 
     async def _materialize_pdf(self, pdf_path: str) -> str:
-        """Resolve `pdf_path` to a local file. Accepts either an existing
-        local path or an http(s) URL (e.g. a presigned MinIO URL)."""
+        """Resolve `pdf_path` to a local file.
+
+        Supports:
+        - ``http(s)://…`` — download (e.g. presigned URL).
+        - Existing filesystem path (relative or absolute).
+        - MinIO object key when ``MINIO_*`` env is set (same bucket as Spring uploads).
+        """
         parsed = urlparse(pdf_path)
         if parsed.scheme in ("http", "https"):
             local = _book_data_dir(self.book_id) / "original.pdf"
             local.parent.mkdir(parents=True, exist_ok=True)
-            logger.info("[%s] Downloading PDF from %s", self.book_id, pdf_path)
+            logger.info("[%s] PDF source=HTTP GET → %s", self.book_id, _pdf_ref_for_log(pdf_path))
             async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
                 resp = await client.get(pdf_path)
                 resp.raise_for_status()
                 local.write_bytes(resp.content)
             self._downloaded_pdf = True
+            logger.info("[%s] PDF saved locally (%d bytes) → %s", self.book_id, local.stat().st_size, local)
             return str(local)
-        if not os.path.isfile(pdf_path):
-            raise FileNotFoundError(f"PDF not found: {pdf_path}")
-        return pdf_path
+
+        if os.path.isfile(pdf_path):
+            logger.info("[%s] PDF source=local file → %s", self.book_id, pdf_path)
+            return pdf_path
+
+        abs_try = os.path.abspath(pdf_path)
+        if os.path.isfile(abs_try):
+            logger.info("[%s] PDF source=local file → %s", self.book_id, abs_try)
+            return abs_try
+
+        if minio_download_configured():
+            local = _book_data_dir(self.book_id) / "original.pdf"
+            key = pdf_path.strip().lstrip("/")
+            logger.info(
+                "[%s] PDF source=MinIO bucket=%s key=%s",
+                self.book_id,
+                settings.minio_template_bucket,
+                key,
+            )
+            await asyncio.to_thread(download_template_bucket_object, key, local)
+            self._downloaded_pdf = True
+            logger.info("[%s] PDF fetched from MinIO (%d bytes) → %s", self.book_id, local.stat().st_size, local)
+            return str(local)
+
+        raise FileNotFoundError(
+            f"PDF not found: {pdf_path}. "
+            "Either place the file on this machine, pass an https presigned URL, "
+            "or set MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY "
+            f"(and MINIO_TEMPLATE_BUCKET={settings.minio_template_bucket!r}) "
+            "to match Spring Boot."
+        )
 
     def _cleanup_temp_pdf(self) -> None:
         if self._downloaded_pdf and self._local_pdf and os.path.isfile(self._local_pdf):
@@ -244,8 +319,20 @@ class MappingPipeline:
         async def _analyze_one(p: PageInfo) -> PageAnalysis:
             return await self.gemini.analyze_page(p.image_path, p.page_num)
 
+        num_batches = (total + _GEMINI_BATCH_SIZE - 1) // _GEMINI_BATCH_SIZE
         for start_idx in range(0, total, _GEMINI_BATCH_SIZE):
+            await self._abort_if_cancelled()
             batch = pages_info[start_idx:start_idx + _GEMINI_BATCH_SIZE]
+            batch_idx = start_idx // _GEMINI_BATCH_SIZE + 1
+            page_nums = [p.page_num for p in batch]
+            logger.info(
+                "[%s] Gemini OCR batch %d/%d | PDF pages %s (size=%d)",
+                self.book_id,
+                batch_idx,
+                num_batches,
+                page_nums,
+                len(batch),
+            )
             try:
                 results = await asyncio.gather(*(_analyze_one(p) for p in batch))
             except Exception:
@@ -265,6 +352,15 @@ class MappingPipeline:
             done_count = start_idx + len(batch)
             progress = 10 + int(done_count / total * 75)
             await self._update("analyzing", progress, f"Page {done_count}/{total}")
+            logger.info(
+                "[%s] Gemini batch %d/%d finished | analyzed_through_page=%d/%d | gemini_calls=%d",
+                self.book_id,
+                batch_idx,
+                num_batches,
+                done_count,
+                total,
+                self.gemini_call_count,
+            )
 
         # Drop raw_response to free memory before persistence.
         for a in page_analyses:
@@ -343,7 +439,13 @@ class MappingPipeline:
             p.page_num: self._page_image_url(p) for p in pages_info
         }
 
-        for page_num, analysis in analyses_by_page.items():
+        total_pages = len(analyses_by_page)
+        persisted_pages = 0
+        persisted_docs = 0
+
+        for i, (page_num, analysis) in enumerate(analyses_by_page.items()):
+            if i % 5 == 0:
+                await self._abort_if_cancelled()
             lesson_ids = self._lessons_for_page(page_num)
             if not lesson_ids:
                 logger.debug(
@@ -362,6 +464,17 @@ class MappingPipeline:
                     raw_image_url=page_image_url_by_page.get(page_num),
                     ocr_confidence=avg_conf,
                     ocr_source="gemini",
+                )
+                persisted_docs += 1
+
+            persisted_pages += 1
+            if persisted_pages % 10 == 0 or persisted_pages == total_pages:
+                logger.info(
+                    "[%s] Persist progress: %d/%d pages (%d lesson-page docs)",
+                    self.book_id,
+                    persisted_pages,
+                    total_pages,
+                    persisted_docs,
                 )
 
     def _lessons_for_page(self, page_num: int) -> list[str]:
@@ -414,8 +527,26 @@ class MappingPipeline:
     # Status helpers
     # ------------------------------------------------------------------
 
+    async def _abort_if_cancelled(self) -> None:
+        if not await book_repository.is_cancel_requested(self.book_id):
+            return
+        await book_repository.clear_cancel_requested(self.book_id)
+        await book_repository.update_status(
+            self.book_id,
+            "error",
+            error="Đã hủy bởi người dùng",
+        )
+        raise OcrCancelled()
+
     async def _update(self, phase: str, progress: int, message: str = "") -> None:
         await book_repository.update_status(self.book_id, "processing", progress, phase)
+        logger.info(
+            "[%s] status=processing phase=%s progress=%d%%%s",
+            self.book_id,
+            phase,
+            progress,
+            f" message={message}" if message else "",
+        )
 
     async def _update_done(self) -> None:
         await book_repository.update_status(self.book_id, "done", 100, "done")

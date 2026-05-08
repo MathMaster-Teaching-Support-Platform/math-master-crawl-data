@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from app.core.mongo import mongo_db
+from app.repositories.history_repository import history_repository
 from app.schemas.lesson_page import ContentBlock, LessonPageDB, UpdateLessonPageRequest
 
 
@@ -86,12 +87,44 @@ class LessonPageRepository:
                 update["verified_by"] = None
                 update["verified_at"] = None
 
+        before_doc = await self.collection.find_one(
+            {"book_id": book_id, "lesson_id": lesson_id, "page_number": page_number}
+        )
+        if before_doc is None:
+            return None
+
         result = await self.collection.find_one_and_update(
             {"book_id": book_id, "lesson_id": lesson_id, "page_number": page_number},
             {"$set": update},
             return_document=True,
         )
-        return self._to_model(result)
+        model = self._to_model(result)
+        if model is None:
+            return None
+
+        entity_id = self._history_entity_id(book_id, lesson_id, page_number)
+        before_page = LessonPageDB.model_validate({**before_doc, "_id": str(before_doc.get("_id"))})
+        before_dump = before_page.model_dump(by_alias=True, mode="json")
+        after_dump = model.model_dump(by_alias=True, mode="json")
+        changed_by = actor_id or "unknown"
+        summary = self._build_history_summary(before_page, model, request)
+        await history_repository.record(
+            entity_type="lesson_page",
+            entity_id=entity_id,
+            book_id=book_id,
+            action="update",
+            changed_by=changed_by,
+            before=before_dump,
+            after=after_dump,
+            summary=summary,
+        )
+        return model
+
+    async def list_page_history(
+        self, book_id: str, lesson_id: str, page_number: int, limit: int = 50
+    ) -> list:
+        entity_id = self._history_entity_id(book_id, lesson_id, page_number)
+        return await history_repository.list_by_entity(entity_id, limit=limit)
 
     async def delete_by_book(self, book_id: str) -> int:
         """Drop every page for a book — called when the BE deletes a book."""
@@ -168,6 +201,26 @@ class LessonPageRepository:
         doc = dict(doc)
         doc["_id"] = str(doc.get("_id"))
         return LessonPageDB.model_validate(doc)
+
+    @staticmethod
+    def _history_entity_id(book_id: str, lesson_id: str, page_number: int) -> str:
+        return f"{book_id}:{lesson_id}:{page_number}"
+
+    @staticmethod
+    def _build_history_summary(
+        before_page: LessonPageDB, after_page: LessonPageDB, request: UpdateLessonPageRequest
+    ) -> str:
+        parts: list[str] = []
+        if request.verified is not None and before_page.verified != after_page.verified:
+            parts.append("verified:on" if after_page.verified else "verified:off")
+        if request.content_blocks is not None:
+            before_count = len(before_page.content_blocks or [])
+            after_count = len(after_page.content_blocks or [])
+            if before_count != after_count:
+                parts.append(f"blocks:{before_count}->{after_count}")
+            elif before_page.content_blocks != after_page.content_blocks:
+                parts.append("content:updated")
+        return "; ".join(parts) if parts else "updated"
 
 
 lesson_page_repository = LessonPageRepository()

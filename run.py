@@ -21,4 +21,5 @@ if __name__ == "__main__":
         port=settings.port,
         reload=settings.debug,
         log_level="info",
+        access_log=settings.uvicorn_access_log,
     )

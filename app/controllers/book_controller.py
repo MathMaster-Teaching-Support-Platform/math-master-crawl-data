@@ -16,6 +16,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from app.repositories.book_repository import book_repository
 from app.repositories.lesson_page_repository import lesson_page_repository
 from app.schemas.lesson_page import (
+    PageHistoryEntry,
     LessonPageDB,
     OcrStatusResponse,
     OcrTriggerRequest,
@@ -93,6 +94,16 @@ async def trigger_ocr_with_mapping(
     )
 
 
+@router.post("/{book_id}/ocr-cancel")
+async def cancel_ocr(book_id: str) -> dict:
+    """Ask the background pipeline to stop cooperatively (Mongo cancel flag).
+
+    Safe if no job exists — matched_count will be 0. The Java BE still resets
+    Postgres book.status so the admin UI can unblock immediately."""
+    matched = await book_repository.request_cancel(book_id)
+    return {"accepted": True, "mongoMatched": matched}
+
+
 @router.get("/{book_id}/ocr-status", response_model=OcrStatusResponse)
 async def get_ocr_status(book_id: str) -> OcrStatusResponse:
     """The BE polls this to drive its `book.status` column."""
@@ -104,6 +115,8 @@ async def get_ocr_status(book_id: str) -> OcrStatusResponse:
         processed_pages=state.processed_pages,
         total_pages=state.total_pages,
         error_message=state.error_message or None,
+        progress_percent=state.progress,
+        current_phase=state.current_phase or "",
     )
 
 
@@ -152,6 +165,25 @@ async def update_page(
     if updated is None:
         raise HTTPException(status_code=404, detail="Page not found.")
     return updated
+
+
+@router.get(
+    "/{book_id}/lessons/{lesson_id}/pages/{page_number}/history",
+    response_model=List[PageHistoryEntry],
+)
+async def get_page_history(
+    book_id: str,
+    lesson_id: str,
+    page_number: int,
+    limit: int = Query(default=50, ge=1, le=200),
+) -> List[PageHistoryEntry]:
+    entries = await lesson_page_repository.list_page_history(
+        book_id, lesson_id, page_number, limit=limit
+    )
+    return [
+        PageHistoryEntry.model_validate(entry.model_dump(by_alias=False))
+        for entry in entries
+    ]
 
 
 @router.delete("/{book_id}/pages")

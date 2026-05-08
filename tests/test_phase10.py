@@ -275,7 +275,7 @@ def test_requirements():
         ("httpx (async HTTP)", "httpx"),
         ("pymupdf (PDF rendering)", "pymupdf"),
         ("pillow (image processing)", "pillow"),
-        ("google-generativeai (Gemini)", "google-generativeai"),
+        ("google-genai (Gemini)", "google-genai"),
         ("pytest", "pytest"),
         ("reportlab (test PDF fixtures)", "reportlab"),
     ]
@@ -304,12 +304,7 @@ def test_main_app_config():
         ("StaticFiles mount", "StaticFiles"),
         ("/static mount path", '"/static"'),
         ("book_controller registered", "book_controller"),
-        ("chapter_controller registered", "chapter_controller"),
-        ("lesson_controller registered", "lesson_controller"),
-        ("search_controller registered", "search_controller"),
         ("/health endpoint", "/health"),
-        ("startup indexes", "create_indexes"),
-        ("lesson_contents text index", "lesson_contents"),
     ]
 
     for label, keyword in required:

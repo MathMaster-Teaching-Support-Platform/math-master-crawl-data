@@ -24,6 +24,8 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
+    # When False, uvicorn does not print access logs (stops GET spam during OCR polling).
+    uvicorn_access_log: bool = False
 
     # Internal API Key (shared with BE to prevent direct access)
     internal_api_key: Optional[str] = "change-me-in-production"
@@ -36,6 +38,13 @@ class Settings(BaseSettings):
     mathpix_app_key: Optional[str] = None
     mathpix_enabled: bool = False
     max_file_size_mb: int = 50
+
+    # MinIO / S3 — fetch PDF when Java BE sends object keys (e.g. books/pdfs/uuid.pdf).
+    # Must match Spring `minio.*` (template bucket is used for book uploads).
+    minio_endpoint: Optional[str] = None
+    minio_access_key: Optional[str] = None
+    minio_secret_key: Optional[str] = None
+    minio_template_bucket: str = "slide-templates"
 
     class Config:
         env_file = ".env"

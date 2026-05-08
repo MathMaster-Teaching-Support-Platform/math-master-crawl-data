@@ -1,3 +1,6 @@
+import logging
+import os
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -8,8 +11,34 @@ from app.controllers.university_controller import router as university_router
 from app.controllers import book_controller
 from app.controllers.demo_controller import router as demo_router
 from app.controllers.ocr_preview_controller import router as ocr_preview_router
+from app.core.access_log_filter import install_access_log_poll_filter
 from app.core.mongo import mongo_db
-import os
+
+
+def _configure_logging() -> None:
+    level_name = (settings.log_level or "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    root = logging.getLogger()
+    if not root.handlers:
+        logging.basicConfig(
+            level=level,
+            format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+            datefmt="%H:%M:%S",
+        )
+    else:
+        root.setLevel(level)
+
+    install_access_log_poll_filter()
+
+    # Hard mute access INFO when disabled (CLI uvicorn can still attach handlers).
+    access_log = logging.getLogger("uvicorn.access")
+    if not settings.uvicorn_access_log:
+        access_log.setLevel(logging.WARNING)
+    else:
+        access_log.setLevel(logging.INFO)
+
+
+_configure_logging()
 
 app = FastAPI(
     title=settings.app_name,
@@ -106,5 +135,6 @@ if __name__ == "__main__":
         "app.main:app",
         host="0.0.0.0",
         port=settings.port,
-        reload=settings.debug
+        reload=settings.debug,
+        access_log=settings.uvicorn_access_log,
     )
