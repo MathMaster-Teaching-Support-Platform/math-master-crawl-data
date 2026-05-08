@@ -519,7 +519,8 @@ class MappingPipeline:
                     confidence=block.confidence,
                     source=block.source,
                     image_url=img.url if img else None,
-                    image_path=img.file_path if img else None,
+                    # Keep API-friendly path (static URL or object key), never absolute server path.
+                    image_path=img.url if img else None,
                     thumbnail_url=img.thumbnail_url if img else None,
                 )
             )

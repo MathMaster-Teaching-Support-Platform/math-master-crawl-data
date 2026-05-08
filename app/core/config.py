@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     minio_access_key: Optional[str] = None
     minio_secret_key: Optional[str] = None
     minio_template_bucket: str = "slide-templates"
+    minio_ocr_content_bucket: str = "slide-templates"
 
     class Config:
         env_file = ".env"
