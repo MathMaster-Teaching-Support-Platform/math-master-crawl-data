@@ -38,7 +38,11 @@ from app.services.gemini_service import (
     PageAnalysis,
 )
 from app.services.image_service import ImageExtractor, ImageResult
-from app.services.mathpix_service import MathpixService
+from app.services.mathpix_service import (
+    MathpixService,
+    latex_to_readable,
+    validate_latex,
+)
 from app.services.minio_fetch import download_template_bucket_object, minio_download_configured
 from app.services.pdf_parser import PageInfo, render_pages
 
@@ -346,7 +350,8 @@ class MappingPipeline:
 
             for offset, (page_info, analysis) in enumerate(zip(batch, results)):
                 self.gemini_call_count += 1
-                analysis = await self._apply_mathpix_fallback(analysis, page_info.image_path)
+                analysis = await self._mathpix_full_page_fallback(page_info, analysis)
+                analysis = await self._apply_mathpix_fallback(analysis, page_info)
                 image_results.update(await self._extract_images(analysis, page_info))
                 page_analyses[start_idx + offset] = analysis
                 await book_repository.increment_processed_pages(self.book_id)
@@ -370,27 +375,156 @@ class MappingPipeline:
                 a.raw_response = ""
         return [a for a in page_analyses if a is not None], image_results
 
+    async def _mathpix_full_page_fallback(
+        self, page_info: PageInfo, analysis: PageAnalysis
+    ) -> PageAnalysis:
+        """When Gemini returns no blocks (JSON parse failure / empty), OCR the whole page via Mathpix."""
+        if analysis.blocks or not self.mathpix.is_enabled():
+            return analysis
+
+        logger.info(
+            "[%s] PDF page %d: no Gemini blocks — full-page Mathpix retry",
+            self.book_id,
+            page_info.page_num,
+        )
+        mp_label = f"[{self.book_id}] pdf_page={page_info.page_num}"
+        result = await self.mathpix.extract_full_page(
+            page_info.image_path,
+            log_label=mp_label,
+        )
+        self.mathpix_call_count += 1
+
+        body = (result.text or "").strip() or latex_to_readable(result.latex).strip()
+        latex_part = (result.latex or "").strip()
+
+        if not result.success or not body:
+            logger.warning(
+                "[%s] PDF page %d: full-page Mathpix produced no usable text "
+                "(success=%s conf=%.4f text_len=%d latex_len=%d)",
+                self.book_id,
+                page_info.page_num,
+                result.success,
+                result.confidence,
+                len((result.text or "").strip()),
+                len(latex_part),
+            )
+            return analysis
+
+        logger.info(
+            "[%s] PDF page %d: full-page Mathpix OK → 1 text block "
+            "(conf=%.4f content_len=%d latex_kept=%s)",
+            self.book_id,
+            page_info.page_num,
+            float(result.confidence or 0.0),
+            len(body),
+            bool(latex_part and validate_latex(latex_part)),
+        )
+
+        safe_latex = latex_part if validate_latex(latex_part) else ""
+        fallback_blocks = [
+            GeminiBlock(
+                type="text",
+                content=body,
+                latex=safe_latex,
+                order=1,
+                confidence=float(result.confidence or 0.75),
+                source="mathpix",
+                needs_mathpix=False,
+            )
+        ]
+        return PageAnalysis(
+            page_num=analysis.page_num,
+            blocks=fallback_blocks,
+            raw_response="",
+            processing_time_ms=analysis.processing_time_ms,
+        )
+
     async def _apply_mathpix_fallback(
-        self, analysis: PageAnalysis, page_image_path: str
+        self, analysis: PageAnalysis, page_info: PageInfo
     ) -> PageAnalysis:
         if not self.mathpix.is_enabled():
             return analysis
+
+        mp_prefix = f"[{self.book_id}] pdf_page={page_info.page_num}"
+        checked = 0
+        skipped_bbox = 0
+        skipped_gate = 0
+        upgraded = 0
+
         for block in analysis.blocks:
             if block.type != "formula":
                 continue
             if not (block.needs_mathpix or block.confidence < 0.6):
+                skipped_gate += 1
                 continue
+            checked += 1
             bbox = block.image_bbox
             if not bbox or len(bbox) != 4:
+                skipped_bbox += 1
+                logger.info(
+                    "%s Mathpix formula skip (no bbox) | block_order=%d "
+                    "needs_mathpix=%s conf=%.4f",
+                    mp_prefix,
+                    block.order,
+                    block.needs_mathpix,
+                    block.confidence,
+                )
                 continue
+            label = f"{mp_prefix} block_order={block.order}"
+            logger.info(
+                "%s Mathpix formula attempt | bbox=%s gemini_conf=%.4f "
+                "needs_mathpix=%s latex_len=%d",
+                mp_prefix,
+                bbox,
+                block.confidence,
+                block.needs_mathpix,
+                len(block.latex or ""),
+            )
             result = await self.mathpix.extract_formula(
-                page_image_path, tuple(bbox), gemini_latex=block.latex
+                page_info.image_path,
+                tuple(bbox),
+                gemini_latex=block.latex,
+                log_label=label,
             )
             if result.success and result.confidence > block.confidence:
+                prev_conf = block.confidence
                 block.latex = result.latex
                 block.source = "mathpix"
                 self.mathpix_call_count += 1
+                upgraded += 1
+                logger.info(
+                    "%s Mathpix formula upgraded | block_order=%d "
+                    "conf %.4f→%.4f latex_len=%d",
+                    mp_prefix,
+                    block.order,
+                    prev_conf,
+                    result.confidence,
+                    len(result.latex or ""),
+                )
+            else:
+                logger.info(
+                    "%s Mathpix formula unchanged | block_order=%d "
+                    "mathpix_success=%s mathpix_conf=%.4f gemini_conf=%.4f",
+                    mp_prefix,
+                    block.order,
+                    result.success,
+                    result.confidence,
+                    block.confidence,
+                )
+
+        if checked or skipped_gate:
+            logger.debug(
+                "[%s] pdf_page=%d Mathpix formula scan | "
+                "checked=%d upgraded=%d skipped_gate=%d skipped_bbox=%d",
+                self.book_id,
+                page_info.page_num,
+                checked,
+                upgraded,
+                skipped_gate,
+                skipped_bbox,
+            )
         return analysis
+
 
     async def _extract_images(
         self, analysis: PageAnalysis, page_info: PageInfo
@@ -457,6 +591,7 @@ class MappingPipeline:
                 continue
             blocks = self._convert_blocks(page_num, analysis, image_results)
             avg_conf = self._avg_confidence(analysis)
+            ocr_source = self._ocr_source_for_analysis(analysis)
             for lesson_id in lesson_ids:
                 await lesson_page_repository.upsert_page(
                     book_id=self.book_id,
@@ -465,7 +600,7 @@ class MappingPipeline:
                     content_blocks=blocks,
                     raw_image_url=page_image_url_by_page.get(page_num),
                     ocr_confidence=avg_conf,
-                    ocr_source="gemini",
+                    ocr_source=ocr_source,
                 )
                 persisted_docs += 1
 
@@ -490,6 +625,17 @@ class MappingPipeline:
         # Served by the FastAPI StaticFiles mount in main.py.
         rel = os.path.relpath(page_info.image_path, settings.storage_path).replace(os.sep, "/")
         return f"/static/{rel}"
+
+    @staticmethod
+    def _ocr_source_for_analysis(analysis: PageAnalysis) -> str:
+        if not analysis.blocks:
+            return "gemini"
+        sources = {getattr(b, "source", "gemini") or "gemini" for b in analysis.blocks}
+        if sources <= {"mathpix"}:
+            return "mathpix"
+        if "mathpix" in sources:
+            return "hybrid"
+        return "gemini"
 
     @staticmethod
     def _avg_confidence(analysis: PageAnalysis) -> Optional[float]:
