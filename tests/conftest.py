@@ -15,6 +15,8 @@ os.environ["MONGO_DB"] = "sgk_toan_test"
 os.environ.setdefault("GEMINI_API_KEY", "fake-test-key-for-testing")
 os.environ["MATHPIX_ENABLED"] = "false"
 os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
+# Disable internal API-key guard for ASGI test client requests.
+os.environ["INTERNAL_API_KEY"] = ""
 # Skip MongoDB index creation during tests (avoids Motor event-loop issues)
 os.environ["SKIP_DB_INIT"] = "true"
 
@@ -395,9 +397,9 @@ async def client():
         patch.object(ImageExtractor, "extract_and_store", MagicMock(side_effect=_fake_extract)),
         # controllers
         patch("app.controllers.book_controller.book_repository", book_mock),
-        patch("app.controllers.book_controller.chapter_repository", chapter_mock),
-        patch("app.controllers.book_controller.lesson_repository", lesson_mock),
-        patch("app.controllers.book_controller.content_repository", content_mock),
+        patch("app.controllers.book_controller.chapter_repository", chapter_mock, create=True),
+        patch("app.controllers.book_controller.lesson_repository", lesson_mock, create=True),
+        patch("app.controllers.book_controller.content_repository", content_mock, create=True),
         patch("app.controllers.chapter_controller.chapter_repository", chapter_mock),
         patch("app.controllers.chapter_controller.lesson_repository", lesson_mock),
         patch("app.controllers.lesson_controller.lesson_repository", lesson_mock),
@@ -407,9 +409,9 @@ async def client():
         patch("app.controllers.search_controller.chapter_repository", chapter_mock),
         # processing pipeline
         patch("app.services.processing_pipeline.book_repository", book_mock),
-        patch("app.services.processing_pipeline.chapter_repository", chapter_mock),
-        patch("app.services.processing_pipeline.lesson_repository", lesson_mock),
-        patch("app.services.processing_pipeline.content_repository", content_mock),
+        patch("app.services.processing_pipeline.chapter_repository", chapter_mock, create=True),
+        patch("app.services.processing_pipeline.lesson_repository", lesson_mock, create=True),
+        patch("app.services.processing_pipeline.content_repository", content_mock, create=True),
     ):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
