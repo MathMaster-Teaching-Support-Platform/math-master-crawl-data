@@ -51,7 +51,9 @@ class OcrCancelled(Exception):
     pass
 
 
-_KEEP_PAGE_IMAGES: bool = os.getenv("KEEP_PAGE_IMAGES", "false").lower() == "true"
+# Keep rendered raw page images by default; set KEEP_PAGE_IMAGES=false only
+# if you explicitly want cleanup to save disk.
+_KEEP_PAGE_IMAGES: bool = os.getenv("KEEP_PAGE_IMAGES", "true").lower() == "true"
 _GEMINI_BATCH_SIZE: int = int(os.getenv("GEMINI_BATCH_SIZE", "5"))
 
 
