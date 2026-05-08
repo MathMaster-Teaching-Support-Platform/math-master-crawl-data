@@ -1,87 +1,113 @@
-from app.core.mongo import mongo_db
-from app.schemas.book import BookCreate, BookDB
-from bson import ObjectId
+"""OCR job state per book.
+
+After the Phase 3 refactor Postgres owns book metadata (title/grade/...);
+Mongo only tracks the OCR pipeline's state for a given book. The `_id` is
+the Postgres book UUID, stored as a string — no ObjectId conversion.
+"""
+
 from datetime import datetime, timezone
 from typing import Optional
 
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.core.mongo import mongo_db
+
+
+class BookOcrState(BaseModel):
+    """Mongo's view of a book — purely OCR pipeline state."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    id: str = Field(alias="_id")
+    status: str = "pending"  # pending | processing | done | error
+    progress: int = 0
+    current_phase: str = ""
+    total_pages: int = 0
+    processed_pages: int = 0
+    pdf_path: str = ""
+    ocr_page_from: int = 0
+    ocr_page_to: int = 0
+    error_message: str = ""
+    gemini_calls: int = 0
+    mathpix_calls: int = 0
+    created_at: datetime
+    updated_at: datetime
+    cancel_requested: bool = False
+
 
 class BookRepository:
-    def __init__(self):
+    def __init__(self) -> None:
         self.collection = mongo_db["books"]
 
-    async def create(self, book: BookCreate, file_path: str) -> str:
+    async def upsert_for_ocr(
+        self,
+        book_id: str,
+        pdf_path: str,
+        ocr_page_from: int,
+        ocr_page_to: int,
+    ) -> None:
+        """Initialize (or reset) the OCR job row for a book. Called at the top
+        of `ocr-with-mapping` so a re-trigger replays cleanly: counters reset,
+        status returns to `pending`, error clears."""
         now = datetime.now(timezone.utc)
-        doc = {
-            **book.model_dump(),
-            "status": "pending",
-            "progress": 0,
-            "current_phase": "",
-            "total_pages": 0,
-            "processed_pages": 0,
-            "file_path": file_path,
-            "error_message": "",
-            "created_at": now,
-            "updated_at": now,
-            "gemini_calls": 0,
-            "mathpix_calls": 0,
-        }
-        result = await self.collection.insert_one(doc)
-        return str(result.inserted_id)
+        await self.collection.update_one(
+            {"_id": book_id},
+            {
+                "$set": {
+                    "status": "pending",
+                    "progress": 0,
+                    "current_phase": "",
+                    "processed_pages": 0,
+                    "pdf_path": pdf_path,
+                    "ocr_page_from": ocr_page_from,
+                    "ocr_page_to": ocr_page_to,
+                    "error_message": "",
+                    "cancel_requested": False,
+                    "updated_at": now,
+                },
+                "$setOnInsert": {
+                    "_id": book_id,
+                    "total_pages": 0,
+                    "gemini_calls": 0,
+                    "mathpix_calls": 0,
+                    "created_at": now,
+                },
+            },
+            upsert=True,
+        )
 
-    async def get_by_id(self, book_id: str) -> Optional[BookDB]:
-        try:
-            doc = await self.collection.find_one({"_id": ObjectId(book_id)})
-        except Exception:
-            return None
+    async def get_by_id(self, book_id: str) -> Optional[BookOcrState]:
+        doc = await self.collection.find_one({"_id": book_id})
         if doc is None:
             return None
-        doc["_id"] = str(doc["_id"])
-        return BookDB(**doc)
-
-    async def list_all(self, grade: int = None, status: str = None) -> list[BookDB]:
-        query = {}
-        if grade is not None:
-            query["grade"] = grade
-        if status is not None:
-            query["status"] = status
-        cursor = self.collection.find(query).sort("created_at", -1)
-        books = []
-        async for doc in cursor:
-            doc["_id"] = str(doc["_id"])
-            books.append(BookDB(**doc))
-        return books
+        return BookOcrState.model_validate(doc)
 
     async def update_status(
         self,
         book_id: str,
         status: str,
-        progress: int = None,
-        phase: str = None,
+        progress: Optional[int] = None,
+        phase: Optional[str] = None,
         error: str = "",
     ) -> None:
-        update: dict = {
-            "status": status,
-            "updated_at": datetime.now(timezone.utc),
-        }
+        update: dict = {"status": status, "updated_at": datetime.now(timezone.utc)}
         if progress is not None:
             update["progress"] = progress
         if phase is not None:
             update["current_phase"] = phase
         if error:
             update["error_message"] = error
-        await self.collection.update_one(
-            {"_id": ObjectId(book_id)}, {"$set": update}
-        )
+        await self.collection.update_one({"_id": book_id}, {"$set": update})
 
     async def update_total_pages(self, book_id: str, total_pages: int) -> None:
         await self.collection.update_one(
-            {"_id": ObjectId(book_id)},
+            {"_id": book_id},
             {"$set": {"total_pages": total_pages, "updated_at": datetime.now(timezone.utc)}},
         )
 
     async def increment_processed_pages(self, book_id: str) -> None:
         await self.collection.update_one(
-            {"_id": ObjectId(book_id)},
+            {"_id": book_id},
             {
                 "$inc": {"processed_pages": 1},
                 "$set": {"updated_at": datetime.now(timezone.utc)},
@@ -99,37 +125,32 @@ class BookRepository:
         if not inc:
             return
         await self.collection.update_one(
-            {"_id": ObjectId(book_id)},
-            {
-                "$inc": inc,
-                "$set": {"updated_at": datetime.now(timezone.utc)},
-            },
+            {"_id": book_id},
+            {"$inc": inc, "$set": {"updated_at": datetime.now(timezone.utc)}},
         )
 
     async def delete(self, book_id: str) -> bool:
-        result = await self.collection.delete_one({"_id": ObjectId(book_id)})
+        result = await self.collection.delete_one({"_id": book_id})
         return result.deleted_count == 1
 
-    async def restore_with_id(self, book_id: str, book: BookCreate, file_path: str) -> str:
-        """Re-insert a book record with a specific _id (e.g. after accidental delete)."""
+    async def request_cancel(self, book_id: str) -> bool:
+        """Signal the running pipeline to stop cooperatively between batches."""
         now = datetime.now(timezone.utc)
-        doc = {
-            "_id": ObjectId(book_id),
-            **book.model_dump(),
-            "status": "pending",
-            "progress": 0,
-            "current_phase": "",
-            "total_pages": 0,
-            "processed_pages": 0,
-            "file_path": file_path,
-            "error_message": "",
-            "created_at": now,
-            "updated_at": now,
-            "gemini_calls": 0,
-            "mathpix_calls": 0,
-        }
-        await self.collection.insert_one(doc)
-        return book_id
+        result = await self.collection.update_one(
+            {"_id": book_id},
+            {"$set": {"cancel_requested": True, "updated_at": now}},
+        )
+        return result.matched_count > 0
+
+    async def is_cancel_requested(self, book_id: str) -> bool:
+        doc = await self.collection.find_one({"_id": book_id}, {"cancel_requested": 1})
+        return bool(doc and doc.get("cancel_requested"))
+
+    async def clear_cancel_requested(self, book_id: str) -> None:
+        await self.collection.update_one(
+            {"_id": book_id},
+            {"$set": {"cancel_requested": False, "updated_at": datetime.now(timezone.utc)}},
+        )
 
 
 book_repository = BookRepository()
