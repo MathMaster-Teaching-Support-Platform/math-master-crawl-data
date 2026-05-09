@@ -123,6 +123,20 @@ class OcrTriggerRequest(BaseModel):
     mappings: List[MappingItem]
 
 
+class OcrSinglePageRequest(BaseModel):
+    """Java-built payload for POST /books/{bookId}/ocr-single-page — re-OCR one (lesson, page)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    book_id: str = Field(validation_alias="bookId", serialization_alias="bookId")
+    lesson_id: str = Field(validation_alias="lessonId", serialization_alias="lessonId")
+    page_number: int = Field(ge=1, validation_alias="pageNumber", serialization_alias="pageNumber")
+    pdf_path: str = Field(validation_alias="pdfPath", serialization_alias="pdfPath")
+    ocr_page_from: int = Field(ge=1, validation_alias="ocrPageFrom", serialization_alias="ocrPageFrom")
+    ocr_page_to: int = Field(ge=1, validation_alias="ocrPageTo", serialization_alias="ocrPageTo")
+    mappings: List[MappingItem]
+
+
 class OcrTriggerResult(BaseModel):
     """Synchronous response — the actual work runs in a BackgroundTask."""
 

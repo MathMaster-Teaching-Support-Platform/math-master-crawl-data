@@ -104,6 +104,29 @@ async def run_pipeline_with_mapping(
     await pipeline.run()
 
 
+async def run_single_page_with_mapping(
+    book_id: str,
+    lesson_id: str,
+    page_number: int,
+    pdf_path: str,
+    ocr_page_from: int,
+    ocr_page_to: int,
+    mappings: list[_Mapping] | list[dict],
+) -> None:
+    """Background task: OCR one page for one lesson (verify wizard re-run)."""
+    flat = _normalize_mappings(mappings)
+    pipeline = MappingPipeline(book_id, pdf_path, ocr_page_from, ocr_page_to, flat)
+    try:
+        await pipeline.run_single_page(lesson_id, page_number)
+    except Exception:
+        logger.exception(
+            "[%s] Single-page OCR failed | lesson=%s page=%d",
+            book_id,
+            lesson_id,
+            page_number,
+        )
+
+
 def _normalize_mappings(mappings) -> list[_Mapping]:
     out: list[_Mapping] = []
     for m in mappings:
@@ -241,6 +264,87 @@ class MappingPipeline:
                 )
             except Exception:
                 pass
+        finally:
+            self._cleanup_temp_pdf()
+
+    async def run_single_page(self, lesson_id: str, page_number: int) -> None:
+        """Re-run Gemini + Mathpix for one mapped PDF page and upsert that lesson's Mongo doc only.
+
+        Does not reset Mongo OCR job state (no ``upsert_for_ocr``) and does not change Postgres
+        ``book.status`` — intended for Step-4 verify when one page failed or parsed poorly.
+        """
+        if page_number < self.ocr_page_from or page_number > self.ocr_page_to:
+            raise ValueError(
+                f"page_number {page_number} outside OCR window "
+                f"[{self.ocr_page_from}, {self.ocr_page_to}]"
+            )
+        lid = str(lesson_id).strip()
+        lid_norm = lid.lower()
+        mapped_lessons = [
+            m.lesson_id for m in self.mappings if m.page_start <= page_number <= m.page_end
+        ]
+        if not any(x.lower() == lid_norm for x in mapped_lessons):
+            raise ValueError(
+                f"lesson {lesson_id} does not own mapped PDF page {page_number} for this book"
+            )
+
+        try:
+            logger.info(
+                "[%s] Single-page OCR start | lesson=%s page=%d",
+                self.book_id,
+                lid,
+                page_number,
+            )
+            self._local_pdf = await self._materialize_pdf(self.pdf_path)
+            output_dir = str(_book_data_dir(self.book_id))
+            os.makedirs(output_dir, exist_ok=True)
+
+            pages_info = render_pages(
+                self._local_pdf,
+                output_dir,
+                page_number,
+                page_number,
+            )
+            if not pages_info:
+                raise RuntimeError(f"PDF render produced no image for page {page_number}")
+
+            self._pages_dir = os.path.join(output_dir, "pages")
+            p = pages_info[0]
+
+            analysis = await self.gemini.analyze_page(p.image_path, p.page_num)
+            self.gemini_call_count += 1
+            analysis = await self._mathpix_full_page_fallback(p, analysis)
+            analysis = await self._apply_mathpix_fallback(analysis, p)
+            image_results = await self._extract_images(analysis, p)
+            analysis.raw_response = ""
+
+            blocks = self._convert_blocks(page_number, analysis, image_results)
+            avg_conf = self._avg_confidence(analysis)
+            ocr_source = self._ocr_source_for_analysis(analysis)
+            raw_url = self._page_image_url(p)
+
+            await lesson_page_repository.upsert_page(
+                book_id=self.book_id,
+                lesson_id=lid,
+                page_number=page_number,
+                content_blocks=blocks,
+                raw_image_url=raw_url,
+                ocr_confidence=avg_conf,
+                ocr_source=ocr_source,
+            )
+            await book_repository.increment_api_calls(
+                self.book_id,
+                gemini=self.gemini_call_count,
+                mathpix=self.mathpix_call_count,
+            )
+            logger.info(
+                "[%s] Single-page OCR done | lesson=%s page=%d | gemini_calls=%d mathpix_calls=%d",
+                self.book_id,
+                lid,
+                page_number,
+                self.gemini_call_count,
+                self.mathpix_call_count,
+            )
         finally:
             self._cleanup_temp_pdf()
 

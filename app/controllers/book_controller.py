@@ -18,13 +18,14 @@ from app.repositories.lesson_page_repository import lesson_page_repository
 from app.schemas.lesson_page import (
     PageHistoryEntry,
     LessonPageDB,
+    OcrSinglePageRequest,
     OcrStatusResponse,
     OcrTriggerRequest,
     OcrTriggerResult,
     UpdateLessonPageRequest,
     VerifyState,
 )
-from app.services.processing_pipeline import run_pipeline_with_mapping
+from app.services.processing_pipeline import run_pipeline_with_mapping, run_single_page_with_mapping
 
 router = APIRouter(prefix="/books", tags=["books"])
 
@@ -91,6 +92,55 @@ async def trigger_ocr_with_mapping(
         status="ACCEPTED",
         message="OCR job queued.",
         total_pages_queued=pages_queued,
+    )
+
+
+@router.post("/{book_id}/ocr-single-page", response_model=OcrTriggerResult)
+async def trigger_ocr_single_page(
+    book_id: str,
+    request: OcrSinglePageRequest,
+    background_tasks: BackgroundTasks,
+) -> OcrTriggerResult:
+    """Re-run Gemini+Mathpix for one mapped PDF page (verify wizard). Does not reset full-book OCR state."""
+    if request.book_id != book_id:
+        raise HTTPException(
+            status_code=400,
+            detail="bookId in path does not match bookId in body.",
+        )
+    if request.ocr_page_to < request.ocr_page_from:
+        raise HTTPException(
+            status_code=400,
+            detail="ocrPageTo must be >= ocrPageFrom.",
+        )
+    if not request.mappings:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one lesson→page mapping is required.",
+        )
+
+    mappings_payload = [
+        {
+            "lesson_id": m.lesson_id,
+            "page_start": m.page_start,
+            "page_end": m.page_end,
+        }
+        for m in request.mappings
+    ]
+    background_tasks.add_task(
+        run_single_page_with_mapping,
+        book_id,
+        request.lesson_id,
+        request.page_number,
+        request.pdf_path,
+        request.ocr_page_from,
+        request.ocr_page_to,
+        mappings_payload,
+    )
+
+    return OcrTriggerResult(
+        status="ACCEPTED",
+        message="Single-page OCR queued.",
+        total_pages_queued=1,
     )
 
 
