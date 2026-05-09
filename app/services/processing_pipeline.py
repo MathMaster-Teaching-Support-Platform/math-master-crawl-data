@@ -486,11 +486,11 @@ class MappingPipeline:
                 gemini_latex=block.latex,
                 log_label=label,
             )
+            self.mathpix_call_count += 1
             if result.success and result.confidence > block.confidence:
                 prev_conf = block.confidence
                 block.latex = result.latex
                 block.source = "mathpix"
-                self.mathpix_call_count += 1
                 upgraded += 1
                 logger.info(
                     "%s Mathpix formula upgraded | block_order=%d "

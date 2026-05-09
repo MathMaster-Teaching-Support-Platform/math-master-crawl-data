@@ -327,7 +327,8 @@ class GeminiOCRService:
         self._page_config = types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
             temperature=0.2,
-            max_output_tokens=8192,
+            # Dense SGK pages produce large JSON; 8k often truncates mid-string → invalid JSON.
+            max_output_tokens=32768,
             response_mime_type="application/json",
             response_schema=GeminiPageResponse,
         )
@@ -358,6 +359,21 @@ class GeminiOCRService:
 
         elapsed_ms = int((time.monotonic() - start) * 1000)
         blocks = self._parse_blocks(raw, page_num)
+
+        # Truncated JSON still yields empty blocks after recovery — retry once before Mathpix.
+        if not blocks and raw and raw.strip():
+            logger.warning(
+                "Page %d: parse produced no blocks (raw_len=%d) — retrying Gemini once",
+                page_num,
+                len(raw),
+            )
+            await self._rate_limiter.acquire()
+            raw = await self._call_with_retry(
+                image_path, PAGE_ANALYSIS_PROMPT, page_num, self._page_config
+            )
+            blocks = self._parse_blocks(raw, page_num)
+            elapsed_ms = int((time.monotonic() - start) * 1000)
+
         return PageAnalysis(
             page_num=page_num,
             blocks=blocks,
