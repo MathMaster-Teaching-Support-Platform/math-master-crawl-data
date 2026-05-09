@@ -104,9 +104,11 @@ class MappingItem(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    lesson_id: str = Field(validation_alias="lessonId", serialization_alias="lessonId")
-    page_start: int = Field(ge=1, validation_alias="pageStart", serialization_alias="pageStart")
-    page_end: int = Field(ge=1, validation_alias="pageEnd", serialization_alias="pageEnd")
+    # Use ``alias`` (not validation_alias+serialization_alias on constrained ints) — avoids
+    # Pydantic v2 UnsupportedFieldAttributeWarning on schema generation.
+    lesson_id: str = Field(alias="lessonId")
+    page_start: int = Field(ge=1, alias="pageStart")
+    page_end: int = Field(ge=1, alias="pageEnd")
 
 
 class OcrTriggerRequest(BaseModel):
@@ -116,10 +118,10 @@ class OcrTriggerRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    book_id: str = Field(validation_alias="bookId", serialization_alias="bookId")
-    pdf_path: str = Field(validation_alias="pdfPath", serialization_alias="pdfPath")
-    ocr_page_from: int = Field(ge=1, validation_alias="ocrPageFrom", serialization_alias="ocrPageFrom")
-    ocr_page_to: int = Field(ge=1, validation_alias="ocrPageTo", serialization_alias="ocrPageTo")
+    book_id: str = Field(alias="bookId")
+    pdf_path: str = Field(alias="pdfPath")
+    ocr_page_from: int = Field(ge=1, alias="ocrPageFrom")
+    ocr_page_to: int = Field(ge=1, alias="ocrPageTo")
     mappings: List[MappingItem]
 
 
@@ -128,12 +130,12 @@ class OcrSinglePageRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    book_id: str = Field(validation_alias="bookId", serialization_alias="bookId")
-    lesson_id: str = Field(validation_alias="lessonId", serialization_alias="lessonId")
-    page_number: int = Field(ge=1, validation_alias="pageNumber", serialization_alias="pageNumber")
-    pdf_path: str = Field(validation_alias="pdfPath", serialization_alias="pdfPath")
-    ocr_page_from: int = Field(ge=1, validation_alias="ocrPageFrom", serialization_alias="ocrPageFrom")
-    ocr_page_to: int = Field(ge=1, validation_alias="ocrPageTo", serialization_alias="ocrPageTo")
+    book_id: str = Field(alias="bookId")
+    lesson_id: str = Field(alias="lessonId")
+    page_number: int = Field(ge=1, alias="pageNumber")
+    pdf_path: str = Field(alias="pdfPath")
+    ocr_page_from: int = Field(ge=1, alias="ocrPageFrom")
+    ocr_page_to: int = Field(ge=1, alias="ocrPageTo")
     mappings: List[MappingItem]
 
 
